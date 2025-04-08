@@ -1,2 +1,2 @@
 # Ship_Sim
-A simple ship simulator made with ROS2
+A simple ship simulator made with rust
