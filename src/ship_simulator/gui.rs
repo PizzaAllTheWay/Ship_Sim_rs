@@ -141,6 +141,7 @@ impl Default for SimulatorWindow {
     }
 }
 
+
 impl eframe::App for SimulatorWindow {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // === Poll keyboard inputs into shared state ===
