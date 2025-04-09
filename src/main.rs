@@ -201,7 +201,6 @@ fn main() {
                 speed[0] = (-1.0) * v_lin_b[0]; // heading speed [m/s]
                 speed[1] = v_ang_b[2] * (180.0/PI); // yaw speed [°/s]
             }
-            
 
             // Precise way to calculate interval
             // This way simulation is at the exact same FPS as GUI 

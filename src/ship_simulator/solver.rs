@@ -15,7 +15,6 @@ where
     x + dx * dt
 }
 
-
 // General RK4 solver using the 3/8-rule
 #[allow(unused_variables)]
 pub fn rk4_step<const N: usize, const M: usize, F>(

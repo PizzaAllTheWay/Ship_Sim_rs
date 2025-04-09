@@ -8,9 +8,3 @@ hard_tabs = false
 fn_call_width = 1000
 struct_lit_width = 1000
 chain_width = 1000
-
-# Allow multi-line where needed, but don’t force it
-use_small_heuristics = "Max"
-
-# Do not force struct literals or function args to new lines unless they exceed max_width
-fn_params_layout = "Compressed"
