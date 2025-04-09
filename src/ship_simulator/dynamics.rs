@@ -6,30 +6,30 @@ use std::f32::consts::PI;
 
 #[allow(non_snake_case)]
 pub struct ShipDynamics {
-    pub m: f32,                    // mass of the boat [kg]
-    pub dimensions: [f32; 2],     // dimensions of the boat (r, l) [m]
+    pub m: f32,                // mass of the boat [kg]
+    pub dimensions: [f32; 2],  // dimensions of the boat (r, l) [m]
     pub I: Matrix3<f32>,       // moment of inertia [kg*m²]
     pub I_inv: Matrix3<f32>,   // inverse moment of inertia for faster computation
 }
 
 impl ShipDynamics {
     // Initializes the dynamics model
-    pub fn new(m: f32, dimensions: [f32; 2]) -> Self {
+    #[allow(non_snake_case)]
+    pub fn new(
+        m: f32,
+        dimensions: [f32; 2],
+    ) -> Self {
         // Assume ship is a cylinder
         // Moment of inertia for a solid cylinder
         // I_x = (1/2) * m * r²
         // I_y = I_z = (1/4) * m * r² + (1/12) * m * l²
         let r = dimensions[0];
         let l = dimensions[1];
-        #[allow(non_snake_case)]
         let I_x = (1.0/2.0) * m * r.powi(2);
-        #[allow(non_snake_case)]
         let I_y = (1.0/4.0) * m * r.powi(2) + (1.0/12.0) * m * l.powi(2);
-        #[allow(non_snake_case)]
         let I_z = I_y;
 
         // Diagonal inertia matrix
-        #[allow(non_snake_case)]
         let I = Matrix3::new(
             I_x, 0.0,       0.0,
             0.0,       I_y, 0.0,
@@ -37,7 +37,6 @@ impl ShipDynamics {
         );
 
         // Try to invert inertia matrix
-        #[allow(non_snake_case)]
         let mut I_inv = Matrix3::zeros();
         if let Some(matrix_inv) = I.try_inverse() {
             I_inv = matrix_inv;
@@ -68,11 +67,21 @@ impl ShipDynamics {
         v_lin: Vector3<f32>,
         v_ang: Vector3<f32>,
     ) -> (Vector3<f32>, Vector3<f32>) {
+        // Dampening ----------
+        // Add a small dampening, helps get rid of oscitation and enhances numerical stability 
+        let d_lin: f32 = 0.080;
+        let d_ang: f32 = 20000.0;
+        let mut force_dampening = (-d_lin) * v_lin;
+        let torque_dampening = (-d_ang) * v_ang;
+
+        // Apply extra dampening for the sides
+        force_dampening[1] += (-d_lin) * v_lin[1];
+
         // Calculate water drag forces ----------
         // Constants
         let rho: f32 = 1000.0; // water density [kg/m³]
-        let c_d_lin: f32 = 0.0005; // linear drag coefficient (Must be < 1.0)
-        let c_d_ang: f32 = 0.9354; // angular drag coefficient (Must be < 1.0 but at the same time bigger than linear drag coefficient)
+        let c_d_lin: f32 = 0.0025; // linear drag coefficient (Must be < 1.0)
+        let c_d_ang: f32 = 0.5854; // angular drag coefficient (Must be < 1.0 but at the same time bigger than linear drag coefficient)
         let r = self.dimensions[0];
         let l = self.dimensions[1];
 
@@ -117,8 +126,8 @@ impl ShipDynamics {
         let torque_drag = (-0.5) * rho * c_d_ang * projected_area_ang * v_ang.component_mul(&v_ang_abs);
 
         // Calculate total forces ----------
-        let force_tot = force_thrusters + force_drag;
-        let torque_tot = torque_thrusters + torque_drag;
+        let force_tot = force_thrusters + force_dampening + force_drag;
+        let torque_tot = torque_thrusters + torque_dampening + torque_drag;
 
         // Calculate acceleration of the body ----------
         let a = (1.0/self.m) * force_tot;

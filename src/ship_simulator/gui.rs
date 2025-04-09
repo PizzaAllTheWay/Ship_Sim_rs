@@ -12,6 +12,7 @@ use std::sync::{Arc, RwLock};
 pub struct SharedState {
     pub ship_pos: Arc<RwLock<[f32; 2]>>, // Ship position [x, y]
     pub ship_angle: Arc<RwLock<f32>>, // Ship orientation in radians
+    pub ship_speed: Arc<RwLock<[f32; 2]>>, // Heading speed and yaw speed [m/s, °/s]
     pub keyboard_state: Arc<RwLock<[bool; 4]>>, // WASD state: [W, A, S, D]
     pub frame_interval_ms: Arc<RwLock<u64>>, // fps in ms
 }
@@ -107,7 +108,7 @@ pub fn draw_scene(ui: &mut Ui, pos: [f32; 2], angle: f32, cam_offset: [f32; 2], 
         .map(|v| {
             let x = v.x * angle.cos() - v.y * angle.sin();
             let y = v.x * angle.sin() + v.y * angle.cos();
-            to_screen([pos[1] + y, pos[0] + x])
+            to_screen([pos[0] + x, pos[1] + y])
         })
         .collect();
 
@@ -188,10 +189,14 @@ impl eframe::App for SimulatorWindow {
             let angle = *self.state.ship_angle.read().unwrap();
 
             // Show debug info in panel
+            let ship_speed  = self.state.ship_speed.write().unwrap();
+
             ui.horizontal(|ui| {
-                ui.label(format!("Ship X: {:.1}", pos[1]));
-                ui.label(format!("Ship Y: {:.1}", pos[0]));
-                ui.label(format!("Ship θ: {:.1}°", angle.to_degrees()));
+                ui.label(format!("Ship X: {:.1} m", pos[1]));
+                ui.label(format!("Ship Y: {:.1} m", pos[0]));
+                ui.label(format!("Ship θ: {:.2}°", angle.to_degrees()));
+                ui.label(format!("Ship v: {:.2} m/s", ship_speed[0]));
+                ui.label(format!("Ship ω: {:.3}°/s", ship_speed[1]));
                 ui.label(format!("Zoom: {:.2}x", self.zoom));
                 ui.label(format!("Pan X: {:.1}", self.camera_offset[0]));
                 ui.label(format!("Pan Y: {:.1}", self.camera_offset[1]));
