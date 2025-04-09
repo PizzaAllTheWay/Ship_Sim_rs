@@ -36,6 +36,21 @@ pub fn r_body_to_world(euler_angles: Vector3<f32>) -> Matrix3<f32> {
     r_z(yaw) * r_y(pitch) * r_x(roll)
 }
 
+pub fn jacobian_angular_velocity_zyx(euler_angles: Vector3<f32>) -> Matrix3<f32> {
+    let (phi, theta, _) = (euler_angles[0], euler_angles[1], euler_angles[2]);
+
+    let s_phi = phi.sin();
+    let c_phi = phi.cos();
+    let t_theta = theta.tan();
+    let c_theta = theta.cos();
+
+    Matrix3::new(
+        1.0, s_phi * t_theta,  c_phi * t_theta,
+        0.0, c_phi,           -s_phi,
+        0.0, s_phi / c_theta,  c_phi / c_theta,
+    )
+}
+
 pub fn linear_accel_body_to_world(
     euler_angles: Vector3<f32>,
     a_b: Vector3<f32>,
@@ -74,7 +89,7 @@ pub fn angular_velocity_world_to_body(
 ) -> Vector3<f32> {
     // Try to invert rotation matrix
     #[allow(non_snake_case)]
-    let mut r_inv = r_body_to_world(euler_angles);
+    let mut r_inv = jacobian_angular_velocity_zyx(euler_angles);
     if let Some(matrix_inv) = r_inv.try_inverse() {
         r_inv = matrix_inv;
     } else {

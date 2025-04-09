@@ -122,18 +122,27 @@ fn main() {
 
             // Keyboard controls logic ----------
             // Read current WASD keys
-            let keyboard_state = *state_clone.keyboard_state.read().unwrap();
-
-            // Only give force as input if any WASD key is pressed
-            if keyboard_state.iter().any(|&key| key) {
-                if keyboard_state[0] { u[0] -= 100.0; } // W (F_x)
-                if keyboard_state[1] { u[5] -= 100.0; } // A (T_z)
-                if keyboard_state[2] { u[0] += 100.0; } // S (F_x)
-                if keyboard_state[3] { u[5] += 100.0; } // D (T_z)
+            if *state_clone.key_state_w.read().unwrap() {
+                u[0] -= 100.0; // W = Forward thrust
             }
-            else {
-                u[0] = 0.0; // (F_x)
-                u[5] = 0.0; // (T_z)
+            if *state_clone.key_state_a.read().unwrap() {
+                u[5] -= 100.0; // A = Rotate left
+            }
+            if *state_clone.key_state_s.read().unwrap() {
+                u[0] += 100.0; // S = Reverse thrust
+            }
+            if *state_clone.key_state_d.read().unwrap() {
+                u[5] += 100.0; // D = Rotate right
+            }
+            
+            // Reset force if none pressed
+            if !(*state_clone.key_state_w.read().unwrap() || *state_clone.key_state_s.read().unwrap()) 
+            {
+                u[0] = 0.0;
+            }
+            if !(*state_clone.key_state_a.read().unwrap() || *state_clone.key_state_d.read().unwrap()) 
+            {
+                u[5] = 0.0;
             }
 
             // Solve ODEs ----------
@@ -161,7 +170,7 @@ fn main() {
 
             let v_ang_w = if v_ang_w.norm() > SHIP_V_ANG_MAX {
                 v_ang_w.normalize() * SHIP_V_ANG_MAX
-            } else if v_ang_w.norm() < 0.001 {
+            } else if v_ang_w.norm() < 0.0001 {
                 Vector3::zeros()
             } else {
                 v_ang_w

@@ -70,7 +70,7 @@ impl ShipDynamics {
         // Dampening ----------
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability 
         let d_lin: f32 = 0.080;
-        let d_ang: f32 = 20000.0;
+        let d_ang: f32 = 200000.0;
         let mut force_dampening = (-d_lin) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
 
@@ -81,7 +81,6 @@ impl ShipDynamics {
         // Constants
         let rho: f32 = 1000.0; // water density [kg/m³]
         let c_d_lin: f32 = 0.0025; // linear drag coefficient (Must be < 1.0)
-        let c_d_ang: f32 = 0.5854; // angular drag coefficient (Must be < 1.0 but at the same time bigger than linear drag coefficient)
         let r = self.dimensions[0];
         let l = self.dimensions[1];
 
@@ -93,18 +92,6 @@ impl ShipDynamics {
             a_x, 0.0, 0.0,
             0.0, a_y, 0.0,
             0.0, 0.0, a_z,
-        );
-
-        // Calculate angular area drag for each angle
-        // A approximation because angular drag area is a paiiiinnn to calculate because of hydrodynamics X-X
-        let coupling = 0.15;       // 15% of main axis drag as coupling
-        let a_x = PI * r.powi(2);  // roll
-        let a_y = PI * r.powi(2);  // pitch
-        let a_z = PI * l.powi(2);  // yaw
-        let projected_area_ang = Matrix3::new(
-            a_x,       coupling * a_z, coupling * a_y,
-            coupling * a_z, a_y,       coupling * a_y,
-            coupling * a_y, coupling * a_x, a_z,
         );
 
         // Formula used (per axis): 
@@ -121,13 +108,9 @@ impl ShipDynamics {
         let v_lin_abs = v_lin.map(|v| v.abs());
         let force_drag = (-0.5) * rho * c_d_lin * projected_area_lin * v_lin.component_mul(&v_lin_abs);
 
-        // Angular water drag
-        let v_ang_abs = v_ang.map(|w| w.abs());
-        let torque_drag = (-0.5) * rho * c_d_ang * projected_area_ang * v_ang.component_mul(&v_ang_abs);
-
         // Calculate total forces ----------
         let force_tot = force_thrusters + force_dampening + force_drag;
-        let torque_tot = torque_thrusters + torque_dampening + torque_drag;
+        let torque_tot = torque_thrusters + torque_dampening;
 
         // Calculate acceleration of the body ----------
         let a = (1.0/self.m) * force_tot;

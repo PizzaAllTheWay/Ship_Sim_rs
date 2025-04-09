@@ -13,7 +13,10 @@ pub struct SharedState {
     pub ship_pos: Arc<RwLock<[f32; 2]>>, // Ship position [x, y]
     pub ship_angle: Arc<RwLock<f32>>, // Ship orientation in radians
     pub ship_speed: Arc<RwLock<[f32; 2]>>, // Heading speed and yaw speed [m/s, °/s]
-    pub keyboard_state: Arc<RwLock<[bool; 4]>>, // WASD state: [W, A, S, D]
+    pub key_state_w: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
+    pub key_state_a: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
+    pub key_state_s: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
+    pub key_state_d: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
     pub frame_interval_ms: Arc<RwLock<u64>>, // fps in ms
 }
 
@@ -142,13 +145,21 @@ impl eframe::App for SimulatorWindow {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // === Poll keyboard inputs into shared state ===
         ctx.input(|i| {
-            let mut keyboard_state = self.state.keyboard_state.write().unwrap();
-            keyboard_state[0] = i.key_down(egui::Key::W);
-            keyboard_state[1] = i.key_down(egui::Key::A);
-            keyboard_state[2] = i.key_down(egui::Key::S);
-            keyboard_state[3] = i.key_down(egui::Key::D);
+            let keys = [
+                (egui::Key::W, &self.state.key_state_w),
+                (egui::Key::A, &self.state.key_state_a),
+                (egui::Key::S, &self.state.key_state_s),
+                (egui::Key::D, &self.state.key_state_d),
+            ];
+        
+            for (key, state_lock) in keys {
+                {
+                    let is_down = i.key_down(key);
+                    let mut state = state_lock.write().unwrap();
+                    *state = is_down;
+                }
+            }
         });
-
         // === GUI canvas with drag + zoom ===
         egui::CentralPanel::default().show(ctx, |ui| {
             // Allow camera panning by dragging
