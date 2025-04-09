@@ -1,0 +1,176 @@
+{
+  metadata: null,
+  mode: null,
+  connect: {
+    timeout_ms: null,
+    endpoints: [],
+    exit_on_failure: null,
+    retry: null
+  },
+  listen: {
+    timeout_ms: null,
+    endpoints: {
+      router: ["tcp/[::]:7447"],
+      peer: ["tcp/[::]:0"],
+      client: null
+    },
+    exit_on_failure: null,
+    retry: null
+  },
+  open: {
+    return_conditions: {
+      connect_scouted: null,
+      declares: null
+    }
+  },
+  scouting: {
+    timeout: null,
+    delay: null,
+    multicast: {
+      enabled: null,
+      address: null,
+      interface: null,
+      ttl: null,
+      autoconnect: null,
+      listen: null
+    },
+    gossip: {
+      enabled: null,
+      multihop: null,
+      autoconnect: null
+    }
+  },
+  timestamping: {
+    enabled: null,
+    drop_future_timestamp: null
+  },
+  queries_default_timeout: null,
+  routing: {
+    router: {
+      peers_failover_brokering: null
+    },
+    peer: {
+      mode: null
+    }
+  },
+  aggregation: {
+    subscribers: [],
+    publishers: []
+  },
+  qos: {
+    publication: []
+  },
+  transport: {
+    unicast: {
+      accept_timeout: 10000,
+      accept_pending: 100,
+      max_sessions: 1000,
+      max_links: 1,
+      lowlatency: false,
+      qos: { enabled: true },
+      compression: { enabled: false }
+    },
+    multicast: {
+      join_interval: 2500,
+      max_sessions: 1000,
+      qos: { enabled: false },
+      compression: { enabled: false }
+    },
+    link: {
+      protocols: null,
+      tx: {
+        sequence_number_resolution: "32bit",
+        lease: 10000,
+        keep_alive: 4,
+        batch_size: 65535,
+        queue: {
+          size: {
+            control: 1,
+            real_time: 1,
+            interactive_high: 1,
+            interactive_low: 1,
+            data_high: 2,
+            data: 4,
+            data_low: 2,
+            background: 1
+          },
+          congestion_control: {
+            drop: {
+              wait_before_drop: 1000,
+              max_wait_before_drop_fragments: 50000
+            },
+            block: {
+              wait_before_close: 5000000
+            }
+          },
+          batching: { enabled: true, time_limit: 1 }
+        },
+        threads: 4
+      },
+      rx: {
+        buffer_size: 65535,
+        max_message_size: 1073741824
+      },
+      tls: {
+        root_ca_certificate: null,
+        listen_private_key: null,
+        listen_certificate: null,
+        enable_mtls: null,
+        connect_private_key: null,
+        connect_certificate: null,
+        verify_name_on_connect: null,
+        close_link_on_expiration: null,
+        so_sndbuf: null,
+        so_rcvbuf: null,
+        root_ca_certificate_base64: null,
+        listen_private_key_base64: null,
+        listen_certificate_base64: null,
+        connect_private_key_base64: null,
+        connect_certificate_base64: null
+      },
+      tcp: {
+        so_sndbuf: null,
+        so_rcvbuf: null
+      },
+      unixpipe: {
+        file_access_mask: null
+      }
+    },
+    shared_memory: { enabled: true },
+    auth: {
+      usrpwd: { user: null, password: null, dictionary_file: null },
+      pubkey: {
+        public_key_pem: null,
+        private_key_pem: null,
+        public_key_file: null,
+        private_key_file: null,
+        key_size: null,
+        known_keys_file: null
+      }
+    }
+  },
+  adminspace: {
+    enabled: false,
+    permissions: { read: true, write: false }
+  },
+  downsampling: [],
+  access_control: {
+    enabled: false,
+    default_permission: "deny",
+    rules: null,
+    subjects: null,
+    policies: null
+  },
+  plugins_loading: {
+    enabled: false,
+    search_dirs: [
+      { kind: "current_exe_parent", value: null },
+      ".",
+      "~/.zenoh/lib",
+      "/opt/homebrew/lib",
+      "/usr/local/lib",
+      "/usr/lib"
+    ]
+  },
+  plugins: {}
+}

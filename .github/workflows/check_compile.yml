@@ -1,0 +1,35 @@
+name: Ensure Code Compiles
+
+on:
+  # Trigger the workflow on pushes to the main branch
+  push:
+    branches:
+      - main
+  # Trigger the workflow on pull requests targeting the main branch
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    # Specify the environment for the job
+    runs-on: ubuntu-latest  # Use the latest Ubuntu environment
+
+    steps:
+      # Step 1: Checkout the code from the repository
+      # This step retrieves the repository's code so it can be used by the workflow.
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Install Rust using the actions-rs toolchain
+      # This sets up the stable version of Rust for running compilation checks.
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable  # Install the stable Rust toolchain
+          profile: minimal   # Install only the components necessary for checking the code
+
+      # Step 3: Verify the code compiles
+      # This step runs `cargo check` to ensure the code compiles successfully.
+      - name: Check the code
+        run: cargo check --release --all-targets  # Perform a compile check in release mode

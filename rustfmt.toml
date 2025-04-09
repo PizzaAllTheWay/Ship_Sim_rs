@@ -1,0 +1,16 @@
+# Set the maximum line width before wrapping
+max_width = 500
+
+# Use spaces instead of tabs
+hard_tabs = false
+
+# Allow function calls and struct literals to remain on one line when possible
+fn_call_width = 100
+struct_lit_width = 100
+chain_width = 100
+
+# Allow multi-line where needed, but don’t force it
+use_small_heuristics = "Max"
+
+# Do not force struct literals or function args to new lines unless they exceed max_width
+fn_params_layout = "Compressed"

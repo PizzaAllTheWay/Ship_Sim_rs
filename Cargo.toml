@@ -1,0 +1,38 @@
+[package]
+name = "Ship_Sim"
+version = "0.1.0"
+edition = "2021"
+
+
+
+# ====================================================================================================
+# Binaries for execution with:
+# $ cargo run --bin <name> 
+[[bin]]
+name = "main"
+path = "src/main.rs"
+# ====================================================================================================
+
+
+
+# ====================================================================================================
+# Custom made libraries
+[lib]
+name = "ship_sim_lib"
+path = "src/ship_sim_lib.rs"
+# ====================================================================================================
+
+
+
+[dependencies]
+# Crates for testing stuff
+rand = "0.8" # Random number generator
+chrono = "0.4" # Get current time
+
+# Crate for GUI design
+eframe = "0.27"
+egui_plot = "0.27"
+
+# Crate for linear algebra
+nalgebra = "0.32"
+
