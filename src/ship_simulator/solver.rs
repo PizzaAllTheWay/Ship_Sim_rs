@@ -1,6 +1,7 @@
 // Library for linear algebra
 use nalgebra::SVector;
 
+
 // General RK1 solver for arbitrary size state and input vectors
 pub fn rk1_step<const N: usize, const M: usize, F>(
     x: &SVector<f32, N>,

@@ -12,6 +12,7 @@ pub struct ShipDynamics {
     pub I_inv: Matrix3<f32>,   // inverse moment of inertia for faster computation
 }
 
+
 impl ShipDynamics {
     // Initializes the dynamics model
     #[allow(non_snake_case)]

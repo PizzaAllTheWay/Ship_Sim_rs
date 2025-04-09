@@ -65,6 +65,7 @@ pub fn angular_accel_body_to_world(
     r_body_to_world(euler_angles) * alpha_body // Rotation matrix from body to world
 }
 
+
 pub fn linear_velocity_world_to_body(
     euler_angles: Vector3<f32>,
     v_w: Vector3<f32>,

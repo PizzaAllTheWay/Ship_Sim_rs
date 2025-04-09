@@ -1,3 +1,4 @@
+
 // Custom libraries
 use ship_sim_lib::ship_simulator::dynamics;
 use ship_sim_lib::ship_simulator::kinematics;
