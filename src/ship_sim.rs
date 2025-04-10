@@ -1,11 +1,13 @@
 // Custom libraries
-use ship_sim_lib::ship_simulator::dynamics;
-use ship_sim_lib::ship_simulator::kinematics;
-use ship_sim_lib::ship_simulator::solver;
-use ship_sim_lib::process_communication::udp_utils;
-use ship_sim_lib::process_communication::udp_topics::{self, TOPICS, Vector12};
+use ship_sim_lib::models::ship;
+use ship_sim_lib::simulation::kinematics;
+use ship_sim_lib::simulation::solver;
+use ship_sim_lib::comm::udp_utils;
+use ship_sim_lib::comm::udp_topics::{self, TOPICS, Vector12};
 
 // Library for data formatting
+use serde::Deserialize;
+use std::fs;
 use std::str;
 
 // Library for maths
@@ -17,27 +19,38 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, RwLock};
 
-// Environmental variables
-const FPS: f32 = 60.0;
-const SHIP_V_LIN_MAX: f32 = 10.00; // Maximum linear speed the ship can reach [m/s]
-const SHIP_V_ANG_MAX: f32 = 0.15;   // Maximum angular speed the ship can reach [rad/s]
 
-// Our non linear ODEx
+
+// Config data structure ----------
+#[derive(Deserialize)]
+struct ShipConfig {
+    mass: f32,
+    dimensions: [f32; 2],
+    velocity_linear_max: f32,
+    velocity_angular_max: f32,
+    simulation_frequency: f32,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    ship: ShipConfig,
+}
+
+// Our non linear ODE ----------
 // x_dot = f(x, u)
 pub struct ODE {
-    pub ship_dynamic: dynamics::ShipDynamics,
+    pub ship_dynamic: ship::ShipDynamics,
     pub x: Vector12<f32>,
 }
 
 impl ODE {
     pub fn new(
         x_0: Vector12<f32>, // Initial states
+        ship_mass: f32, // [kg]
+        ship_dimensions: [f32; 2], // (r, l) [m]
     ) -> Self {
-        // Initialize ship dynamics
-        let ship_mass = 10000.0; // [kg]
-        let ship_dimensions: [f32; 2] = [10.0, 30.0]; // (r, l) [m]
-        
-        let ship_dynamic = dynamics::ShipDynamics::new(
+        // Initialize ship dynamics        
+        let ship_dynamic = ship::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
         );
@@ -89,8 +102,14 @@ impl ODE {
     }
 }
 
+
+
 fn main() {
     // Setup (START) ==================================================
+    // Get config file
+    let config_str = fs::read_to_string("config.toml").expect("Failed to read config file");
+    let config: Config = toml::from_str(&config_str).expect("Failed to parse TOML config");
+
     // Create shared resource to access GUI and states
     let forces_thruster: Arc<RwLock<TOPICS::forces::DataType>> = Arc::new(RwLock::new(Vector6::<f32>::zeros()));
     // Setup (STOP) ==================================================
@@ -122,7 +141,11 @@ fn main() {
             0.0, 0.0, 0.0, // [x, y, z]
             0.0, 0.0, 0.0, // [roll, pitch, yaw]
         ]);
-        let ode: ODE = ODE::new(x);   
+        let ode: ODE = ODE::new(
+            x, 
+            config.ship.mass,
+            config.ship.dimensions,
+        );   
         let mut u: Vector6<f32>;
 
         let mut dx: TOPICS::dx::DataType;
@@ -134,7 +157,7 @@ fn main() {
         // Values chosen to balance speed and accuracy in typical marine dynamics
         let tolerances: (f32, f32) = (1e-5, 1e-3); // (tol_min, tol_max)
         let dt_limits: (f32, f32) = (0.0001, 0.1); // (min, max) [s]
-        let mut dt = 1.0/FPS; // [s]
+        let mut dt = 1.0/config.ship.simulation_frequency; // [s]
 
         let interval = Duration::from_millis((dt * 1000.0) as u64);
 
@@ -162,16 +185,16 @@ fn main() {
             let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
             let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
 
-            let v_lin_w = if v_lin_w.norm() > SHIP_V_LIN_MAX {
-                v_lin_w.normalize() * SHIP_V_LIN_MAX
+            let v_lin_w = if v_lin_w.norm() > config.ship.velocity_linear_max {
+                v_lin_w.normalize() * config.ship.velocity_linear_max
             } else if v_lin_w.norm() < 0.01 {
                 Vector3::zeros()
             } else {
                 v_lin_w
             };
 
-            let v_ang_w = if v_ang_w.norm() > SHIP_V_ANG_MAX {
-                v_ang_w.normalize() * SHIP_V_ANG_MAX
+            let v_ang_w = if v_ang_w.norm() > config.ship.velocity_angular_max {
+                v_ang_w.normalize() * config.ship.velocity_angular_max
             } else if v_ang_w.norm() < 0.0001 {
                 Vector3::zeros()
             } else {

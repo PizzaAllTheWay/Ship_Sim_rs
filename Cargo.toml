@@ -9,12 +9,12 @@ edition = "2021"
 # Binaries for execution with:
 # $ cargo run --bin <name> 
 [[bin]]
-name = "simulator"
-path = "src/simulator.rs"
+name = "ship_sim"
+path = "src/ship_sim.rs"
 
 [[bin]]
-name = "interface"
-path = "src/interface.rs"
+name = "sim_interface"
+path = "src/sim_interface.rs"
 # ====================================================================================================
 
 
@@ -23,7 +23,7 @@ path = "src/interface.rs"
 # Custom made libraries
 [lib]
 name = "ship_sim_lib"
-path = "src/ship_sim_lib.rs"
+path = "src/ship_sim_lib/ship_sim_lib.rs"
 # ====================================================================================================
 
 
@@ -43,5 +43,6 @@ nalgebra = { version = "0.32", features = ["serde-serialize"] }
 # Used for data structure formatting
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "0.8"
 
 

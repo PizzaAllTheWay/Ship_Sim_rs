@@ -1,5 +1,5 @@
-use ship_sim_lib::process_communication::udp_utils;
-use ship_sim_lib::process_communication::udp_topics::{self, TOPICS};
+use ship_sim_lib::comm::udp_utils;
+use ship_sim_lib::comm::udp_topics::{self, TOPICS};
 use std::str;
 
 fn main() -> std::io::Result<()> {

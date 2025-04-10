@@ -1,9 +1,11 @@
 // Custom libraries
-use ship_sim_lib::ship_simulator::gui;
-use ship_sim_lib::process_communication::udp_utils;
-use ship_sim_lib::process_communication::udp_topics::{self, TOPICS};
+use ship_sim_lib::ui::gui;
+use ship_sim_lib::comm::udp_utils;
+use ship_sim_lib::comm::udp_topics::{self, TOPICS};
 
 // Library for data formatting
+use serde::Deserialize;
+use std::fs;
 use std::str;
 
 // Library for maths
@@ -13,11 +15,27 @@ use nalgebra::Vector6;
 use std::thread;
 use std::time::{Duration, Instant};
 
-// Environmental variables
-const FPS: f32 = 60.0;
+
+
+// Config data structure ----------
+#[derive(Deserialize)]
+struct InterfaceConfig {
+    fps: f32,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    interface: InterfaceConfig,
+}
+
+
 
 fn main() {
     // Setup (START) ==================================================
+    // Get config file
+    let config_str = fs::read_to_string("config.toml").expect("Failed to read config file");
+    let config: Config = toml::from_str(&config_str).expect("Failed to parse TOML config");
+
     // Create shared resources for GUI
     let gui_state = gui::SharedState::default();
     // Setup (STOP) ==================================================
@@ -66,7 +84,7 @@ fn main() {
     thread::spawn(move || {
         let mut forces: TOPICS::forces::DataType = Vector6::<f32>::zeros();
 
-        let dt = 1.0/FPS; // [s]
+        let dt = 1.0/config.interface.fps; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64);
 
         loop {
@@ -117,34 +135,7 @@ fn main() {
     // Run GUI in main
     // NOTE: It must run in main else you might get event loops O_O
     let gui_state_clone = gui_state.clone();
-    *gui_state_clone.frame_interval_ms.write().unwrap() = (1000.0/FPS) as u64; // FPS to ms
+    *gui_state_clone.frame_interval_ms.write().unwrap() = (1000.0/config.interface.fps) as u64; // FPS to ms
     gui::window(gui_state_clone);
     // GUI (STOP) ==================================================
 }
-
-
-/*
-// Update simulator ----------
-// Set new position
-if let Ok(mut pos) = state_clone.ship_pos.write() {
-    pos[0] = x[6]; // x
-    pos[1] = x[7]; // y
-}
-if let Ok(mut ang) = state_clone.ship_angle.write() {
-    *ang = x[11]; // yaw
-}
-#[allow(unused_variables)]
-if let Ok(mut speed) = state_clone.ship_speed.write() {
-    let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
-    let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
-    let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
-    let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
-    
-    let v_lin_b = kinematics::linear_velocity_world_to_body(r_ang_w, v_lin_w);
-    let v_ang_b = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
-    
-    speed[0] = (-1.0) * v_lin_b[0]; // heading speed [m/s]
-    speed[1] = v_ang_b[2] * (180.0/PI); // yaw speed [°/s]
-}
-
-*/

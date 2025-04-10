@@ -1,6 +1,6 @@
 use std::{thread, time::Duration};
-use ship_sim_lib::process_communication::udp_utils;
-use ship_sim_lib::process_communication::udp_topics::{self, TOPICS, Vector12};
+use ship_sim_lib::comm::udp_utils;
+use ship_sim_lib::comm::udp_topics::{self, TOPICS, Vector12};
 use nalgebra::Vector6;
 
 fn main() -> std::io::Result<()> {
