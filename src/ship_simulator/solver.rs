@@ -53,7 +53,7 @@ pub fn rkf45_step<const N: usize, const M: usize, F>(
     f: F,
     tolerances: (f32, f32),
     dt_limits: (f32, f32),
-) -> (SVector<f32, N>, f32)
+) -> (SVector<f32, N>, SVector<f32, N>, f32)
 where
     F: Fn(&SVector<f32, N>, &SVector<f32, M>) -> SVector<f32, N>,
 {
@@ -129,5 +129,8 @@ where
         new_dt = new_dt.clamp(dt_min, dt_max);
     }
 
-    return (x5, new_dt);
+    // Return data of interest
+    let dx = k[0];
+
+    return (x5, dx, new_dt);
 }
