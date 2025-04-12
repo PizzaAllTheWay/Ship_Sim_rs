@@ -9,12 +9,16 @@ edition = "2021"
 # Binaries for execution with:
 # $ cargo run --bin <name> 
 [[bin]]
-name = "ship_sim"
-path = "src/ship_sim.rs"
-
-[[bin]]
 name = "sim_interface"
 path = "src/sim_interface.rs"
+
+[[bin]]
+name = "external_force_sim"
+path = "src/external_force_sim.rs"
+
+[[bin]]
+name = "ship_sim"
+path = "src/ship_sim.rs"
 # ====================================================================================================
 
 

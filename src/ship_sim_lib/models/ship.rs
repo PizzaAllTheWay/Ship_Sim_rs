@@ -119,7 +119,7 @@ impl ShipDynamics {
         // Calculate wind forces ----------
         // Very similar to drag model just positive and fine tuned for wind
         let rho_air: f32 = 1.225; // air density [kg/m³]
-        let c_d_wind: f32 = 0.025;  // drag coefficient for wind
+        let c_d_wind: f32 = 0.055;  // drag coefficient for wind
         let k_tx = 0.0025; // scaling for Tx
         let k_ty = 0.0005; // scaling for Ty
         let k_tz = 0.0155; // scaling for Tz

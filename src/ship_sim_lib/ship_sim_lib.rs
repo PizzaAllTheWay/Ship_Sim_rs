@@ -8,8 +8,10 @@ pub mod comm {
 }
 
 pub mod models {
+    pub mod current;
     pub mod gnss;
     pub mod ship;
+    pub mod wind;
 }
 
 pub mod simulation {

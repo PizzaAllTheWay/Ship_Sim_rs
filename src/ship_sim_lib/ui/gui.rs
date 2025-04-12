@@ -28,9 +28,11 @@ pub struct SharedState {
     pub wind_speed_max: Arc<RwLock<f32>>, // [m/s]
     pub wind_speed: Arc<RwLock<f32>>,  // [m/s]
     pub wind_angle: Arc<RwLock<f32>>, // [°]
+    pub wind_noise: Arc<RwLock<f32>>, // [%]
     pub current_speed_max: Arc<RwLock<f32>>, // [m/s]
     pub current_speed: Arc<RwLock<f32>>,  // [m/s]
     pub current_angle: Arc<RwLock<f32>>, // [°]
+    pub current_noise: Arc<RwLock<f32>>, // [%]
 }
 
 /// === draw_scene ===
@@ -46,7 +48,9 @@ pub fn draw_scene(
     zoom: f32,
     show_external_forces: bool,
     wind_speed_vector: Vector3<f32>,
+    wind_noise: f32,
     current_speed_vector: Vector3<f32>,
+    current_noise: f32,
 ) {
     // Allocate full window canvas for drawing
     let size = ui.available_size();
@@ -132,6 +136,7 @@ pub fn draw_scene(
         // === Draw wind speed vector ===
         // Calculate location of vector
         let length_scale_wind = (rect.height() * 0.01)/zoom; // 1% of screen height
+        let thickness_factor = 0.2 * wind_noise;
 
         let wind_scaled = Vec2::new(
             wind_speed_vector.x * length_scale_wind,
@@ -147,16 +152,19 @@ pub fn draw_scene(
 
         let dir = (target_screen - origin_screen).normalized();
         let perp = Vec2::new(-dir.y, dir.x);
-        let arrow_size = 20.0;
+        let mut arrow_size = 20.0;
+        arrow_size += thickness_factor * arrow_size;
 
         // Adjusted target for the line to leave space for the arrowhead
         let arrow_offset = dir * arrow_size;
         let line_end = target_screen - arrow_offset;
+        let mut line_width = 5.0;
+        line_width += thickness_factor * line_width;
 
         // Draw main line ending before the arrowhead
         painter.line_segment(
             [origin_screen, line_end],
-            Stroke::new(5.0, Color32::GREEN),
+            Stroke::new(line_width, Color32::GREEN),
         );
 
         // Draw arrowhead at the original target
@@ -169,6 +177,7 @@ pub fn draw_scene(
         // === Draw current speed vector ===
         // Calculate location of vector
         let length_scale_current = (rect.height() * 0.1)/zoom; // 10% of screen height
+        let thickness_factor = 0.2 * current_noise;
 
         let current_scaled = Vec2::new(
             current_speed_vector.x * length_scale_current,
@@ -184,16 +193,19 @@ pub fn draw_scene(
 
         let dir = (target_screen - origin_screen).normalized();
         let perp = Vec2::new(-dir.y, dir.x);
-        let arrow_size = 20.0;
+        let mut arrow_size = 20.0;
+        arrow_size += thickness_factor * arrow_size;
 
         // Adjusted target for the line to leave space for the arrowhead
         let arrow_offset = dir * arrow_size;
         let line_end = target_screen - arrow_offset;
+        let mut line_width = 5.0;
+        line_width += thickness_factor * line_width;
 
         // Draw main line ending before the arrowhead
         painter.line_segment(
             [origin_screen, line_end],
-            Stroke::new(5.0, Color32::BLUE),
+            Stroke::new(line_width, Color32::BLUE),
         );
 
         // Draw arrowhead at the original target
@@ -346,6 +358,12 @@ impl eframe::App for SimulatorWindow {
                         ui.label("Angle: ");
                         ui.add(egui::Slider::new(&mut *wind_angle, 0.0..=360.0).text("°"));
                     });
+
+                    let mut wind_noise = self.state.wind_noise.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Noise:  ");
+                        ui.add(egui::Slider::new(&mut *wind_noise, 0.0..=5.0).text("%"));
+                    });
                 });
             
                 ui.add_space(40.0); // spacing between wind and current columns
@@ -366,11 +384,18 @@ impl eframe::App for SimulatorWindow {
                         ui.label("Angle: ");
                         ui.add(egui::Slider::new(&mut *current_angle, 0.0..=360.0).text("°"));
                     });
+
+                    let mut current_noise = self.state.current_noise.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Noise:  ");
+                        ui.add(egui::Slider::new(&mut *current_noise, 0.0..=1.0).text("%"));
+                    });
                 });
             });
 
             // Convert external forces to vectors
-            let wind_speed = *self.state.wind_speed.read().unwrap();
+            let min_wind_length = 10.0;
+            let wind_speed = *self.state.wind_speed.read().unwrap() + min_wind_length;
             let wind_angle_deg = *self.state.wind_angle.read().unwrap();
             let wind_angle_rad = wind_angle_deg.to_radians();
             let wind_speed_vector = Vector3::new(
@@ -379,7 +404,8 @@ impl eframe::App for SimulatorWindow {
                 0.0,
             );
 
-            let current_speed = *self.state.current_speed.read().unwrap();
+            let min_current_length = 1.0;
+            let current_speed = *self.state.current_speed.read().unwrap() + min_current_length;
             let current_angle_deg = *self.state.current_angle.read().unwrap();
             let current_angle_rad = current_angle_deg.to_radians();
             let current_speed_vector = Vector3::new(
@@ -392,6 +418,8 @@ impl eframe::App for SimulatorWindow {
             ui.separator(); 
 
             let show_external_forces = *self.state.show_external_forces.read().unwrap();
+            let wind_noise = *self.state.wind_noise.read().unwrap();
+            let current_noise = *self.state.current_noise.read().unwrap() * 5.0; // Since wind noise % slider is x5 bigger, for consistent vectors compensate for it here
 
             draw_scene(
                 ui,
@@ -401,7 +429,9 @@ impl eframe::App for SimulatorWindow {
                 self.zoom,
                 show_external_forces,
                 wind_speed_vector,
+                wind_noise,
                 current_speed_vector,
+                current_noise
             );
             
             // Wait a bit until next render

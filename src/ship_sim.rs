@@ -130,9 +130,9 @@ fn main() {
     let config: Config = toml::from_str(&config_str).expect("Failed to parse TOML config");
 
     // Create shared resource to access GUI and states
-    let forces_thruster: Arc<RwLock<TOPICS::forces_thrusters::DataType>> = Arc::new(RwLock::new(Vector6::<f32>::zeros()));
-    let wind_speed: Arc<RwLock<TOPICS::wind_speed::DataType>> = Arc::new(RwLock::new(Vector3::<f32>::zeros()));
-    let current_speed: Arc<RwLock<TOPICS::current_speed::DataType>> = Arc::new(RwLock::new(Vector3::<f32>::zeros()));
+    let forces_thruster= Arc::new(RwLock::new(TOPICS::forces_thrusters::DataType::zeros()));
+    let wind_speed = Arc::new(RwLock::new(TOPICS::wind_speed::DataType::zeros()));
+    let current_speed = Arc::new(RwLock::new(TOPICS::current_speed::DataType::zeros()));
     // Setup (STOP) ==================================================
 
     // GET - Control Forces (START) ==================================================

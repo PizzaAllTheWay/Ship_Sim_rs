@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # List of binary names (without .rs extension)
-BINS=("ship_sim" "sim_interface")
+BINS=("ship_sim" "external_force_sim" "sim_interface")
 
 # Handle Ctrl+C (SIGINT)
 trap 'echo "Stopping..."; kill 0; exit' INT
@@ -13,7 +13,10 @@ do
     cargo run --bin "$BIN" &
 done
 
-# Wait for all background jobs to finish (or be killed)
+# Forcefully kill all the rust binaries
+pkill -f target/debug/
+
+# Wait for any other processes to be done
 wait
 
 echo "All binaries finished."

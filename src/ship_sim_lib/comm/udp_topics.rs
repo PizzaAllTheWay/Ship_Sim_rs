@@ -29,8 +29,26 @@ pub mod TOPICS {
     pub mod forces_thrusters {
         use super::*;
         use Vector6;
-        pub const PORT: u16 = 5555;
+        pub const PORT: u16 = 5550;
         pub type DataType = Vector6<f32>;
+    }
+
+    // Data Type [Vector3<f32>]:
+    // [velocity [m/s], angle [°], noise [%]]
+    pub mod wind_parameters {
+        use super::*;
+        use Vector3;
+        pub const PORT: u16 = 5551;
+        pub type DataType = Vector3<f32>;
+    }
+
+    // Data Type [Vector3<f32>]:
+    // [velocity [m/s], angle [°], noise [%]]
+    pub mod current_parameters {
+        use super::*;
+        use Vector3;
+        pub const PORT: u16 = 5552;
+        pub type DataType = Vector3<f32>;
     }
 
     // Data Type [Vector3<f32>]:
@@ -38,7 +56,7 @@ pub mod TOPICS {
     pub mod wind_speed {
         use super::*;
         use Vector3;
-        pub const PORT: u16 = 5556;
+        pub const PORT: u16 = 5560;
         pub type DataType = Vector3<f32>;
     }
 
@@ -47,7 +65,7 @@ pub mod TOPICS {
     pub mod current_speed {
         use super::*;
         use Vector3;
-        pub const PORT: u16 = 5557;
+        pub const PORT: u16 = 5561;
         pub type DataType = Vector3<f32>;
     }
 
@@ -59,7 +77,7 @@ pub mod TOPICS {
     pub mod x {
         use super::*;
         use Vector12;
-        pub const PORT: u16 = 5558;
+        pub const PORT: u16 = 5570;
         pub type DataType = Vector12<f32>;
     }
 
@@ -71,7 +89,7 @@ pub mod TOPICS {
     pub mod dx {
         use super::*;
         use Vector12;
-        pub const PORT: u16 = 5559;
+        pub const PORT: u16 = 5571;
         pub type DataType = Vector12<f32>;
     }
 
@@ -81,7 +99,7 @@ pub mod TOPICS {
     pub mod speed {
         use super::*;
         use Vector2;
-        pub const PORT: u16 = 5560;
+        pub const PORT: u16 = 5572;
         pub type DataType = Vector2<f32>;
     }
 }

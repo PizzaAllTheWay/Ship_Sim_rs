@@ -3,6 +3,9 @@ fps = 60.0 # Hz
 wind_speed_max = 22.0 # Comparable to a strong Gale [m/s]
 current_speed_max = 3.0 # Comparable to tidal currents near a shore [m/s]
 
+[external_force]
+simulation_frequency = 100.00 # Hz
+
 [ship]
 mass = 10000.0 # [kg]
 length = 30.0 # [m]
