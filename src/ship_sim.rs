@@ -37,10 +37,15 @@ struct Config {
 }
 
 // Our non linear ODE ----------
-// x_dot = f(x, u)
+// x_dot = f(x, u, w)
 pub struct ODE {
     pub ship_dynamic: ship::ShipDynamics,
     pub x: Vector12<f32>,
+}
+
+pub struct Disturbance {
+    pub wind: Vector3<f32>, // [vx, vy, vz]
+    pub current: Vector3<f32>, // [vx, vy, vz]
 }
 
 impl ODE {
@@ -69,7 +74,8 @@ impl ODE {
     fn f(
         &self,
         x: &Vector12<f32>,
-        u: &Vector6<f32>
+        u: &Vector6<f32>,
+        w: &Disturbance,
     ) -> Vector12<f32> {
         // Split up states into manageable subparts
         let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
@@ -80,12 +86,25 @@ impl ODE {
         let force_b: Vector3<f32> = u.fixed_rows::<3>(0).into();  // [Fx, Fy, Fz]
         let torque_b: Vector3<f32> = u.fixed_rows::<3>(3).into(); // [Torque in roll, pitch, yaw]
 
+        let w_wind_w: Vector3<f32> = w.wind; // [vx, vy, vz]
+        let w_current_w: Vector3<f32> = w.current; // [vx, vy, vz]
+
         // Inverse kinematics
         let v_lin_b = kinematics::linear_velocity_world_to_body(r_ang_w, v_lin_w);
         let v_ang_b = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
         
+        let w_wind_b = kinematics::linear_velocity_world_to_body(r_ang_w, w_wind_w);
+        let w_current_b = kinematics::linear_velocity_world_to_body(r_ang_w, w_current_w);
+        
         // Dynamics
-        let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(force_b, torque_b, v_lin_b, v_ang_b);
+        let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
+            force_b,
+            torque_b,
+            v_lin_b,
+            v_ang_b,
+            w_wind_b,
+            w_current_b,
+        );
 
         // Kinematics
         let a_lin_w = kinematics::linear_accel_body_to_world(r_ang_w, a_lin_b,);
@@ -111,7 +130,9 @@ fn main() {
     let config: Config = toml::from_str(&config_str).expect("Failed to parse TOML config");
 
     // Create shared resource to access GUI and states
-    let forces_thruster: Arc<RwLock<TOPICS::forces::DataType>> = Arc::new(RwLock::new(Vector6::<f32>::zeros()));
+    let forces_thruster: Arc<RwLock<TOPICS::forces_thrusters::DataType>> = Arc::new(RwLock::new(Vector6::<f32>::zeros()));
+    let wind_speed: Arc<RwLock<TOPICS::wind_speed::DataType>> = Arc::new(RwLock::new(Vector3::<f32>::zeros()));
+    let current_speed: Arc<RwLock<TOPICS::current_speed::DataType>> = Arc::new(RwLock::new(Vector3::<f32>::zeros()));
     // Setup (STOP) ==================================================
 
     // GET - Control Forces (START) ==================================================
@@ -120,9 +141,9 @@ fn main() {
         loop {
             // Wait for thruster forces data to arrive from gui
             // Once received format to correct datatype
-            let msg = udp_utils::subscribe(TOPICS::forces::PORT).expect("Failed to get forces data");
+            let msg = udp_utils::subscribe(TOPICS::forces_thrusters::PORT).expect("Failed to get forces data");
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let forces: TOPICS::forces::DataType = udp_topics::decode_json(json_str);
+            let forces: TOPICS::forces_thrusters::DataType = udp_topics::decode_json(json_str);
 
             // Save thruster forces in shared resource for simulator
             let mut forces_thruster = forces_thruster_clone.write().unwrap();
@@ -131,8 +152,44 @@ fn main() {
     });
     // GET - Control Forces (STOP) ==================================================
 
+    // GET - External Wind Forces (START) ==================================================
+    let wind_speed_clone = wind_speed.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for thruster forces data to arrive from gui
+            // Once received format to correct datatype
+            let msg = udp_utils::subscribe(TOPICS::wind_speed::PORT).expect("Failed to get wind data");
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let wind: TOPICS::wind_speed::DataType = udp_topics::decode_json(json_str);
+
+            // Save thruster forces in shared resource for simulator
+            let mut wind_speed = wind_speed_clone.write().unwrap();
+            *wind_speed = wind;
+        }
+    });
+    // GET - External Wind Forces (STOP) ==================================================
+
+    // GET - Control Forces (START) ==================================================
+    let current_speed_clone = current_speed.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for thruster forces data to arrive from gui
+            // Once received format to correct datatype
+            let msg = udp_utils::subscribe(TOPICS::current_speed::PORT).expect("Failed to get water current data");
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let current: TOPICS::current_speed::DataType = udp_topics::decode_json(json_str);
+
+            // Save thruster forces in shared resource for simulator
+            let mut current_speed = current_speed_clone.write().unwrap();
+            *current_speed = current;
+        }
+    });
+    // GET - Control Forces (STOP) ==================================================
+
     // Simulate (START) ==================================================
     let forces_thruster_clone = forces_thruster.clone();
+    let wind_speed_clone = wind_speed.clone();
+    let current_speed_clone = current_speed.clone();
     thread::spawn(move || {
         // Initialize system ----------
         let mut x: TOPICS::x::DataType = Vector12::<f32>::from_row_slice(&[
@@ -170,12 +227,19 @@ fn main() {
                 *forces_thruster_clone.read().unwrap()
             };
 
+            // Disturbance ----------
+            let w = Disturbance {
+                wind: *wind_speed_clone.read().unwrap(),
+                current: *current_speed_clone.read().unwrap(),
+            };
+
             // Solve ODEs ----------
             (x, dx, dt) = solver::rkf45_step(
                 &x, 
-                &u, 
+                &u,
+                &w, 
                 dt, 
-                |x, u| ode.f(x, u),
+                |x, u, w| ode.f(x, u, w),
                 tolerances,
                 dt_limits,
             );

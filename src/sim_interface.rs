@@ -9,7 +9,7 @@ use std::fs;
 use std::str;
 
 // Library for maths
-use nalgebra::Vector6;
+use nalgebra::{Vector3, Vector6};
 
 // Libraries for multithreading
 use std::thread;
@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 #[derive(Deserialize)]
 struct InterfaceConfig {
     fps: f32,
+    wind_speed_max: f32,
+    current_speed_max: f32,
 }
 
 #[derive(Deserialize)]
@@ -82,7 +84,7 @@ fn main() {
     // SEND - Control Forces (START) ==================================================
     let gui_state_clone = gui_state.clone();
     thread::spawn(move || {
-        let mut forces: TOPICS::forces::DataType = Vector6::<f32>::zeros();
+        let mut forces: TOPICS::forces_thrusters::DataType = Vector6::<f32>::zeros();
 
         let dt = 1.0/config.interface.fps; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64);
@@ -119,7 +121,7 @@ fn main() {
             let forces_json = udp_topics::encode_json(&forces);
 
             // Publish data
-            udp_utils::publish(TOPICS::forces::PORT, forces_json.as_bytes()).expect("Failed to publish forces data");
+            udp_utils::publish(TOPICS::forces_thrusters::PORT, forces_json.as_bytes()).expect("Failed to publish forces data");
 
             // Precise way to calculate interval
             // This way simulation is at the exact same FPS as GUI 
@@ -131,11 +133,87 @@ fn main() {
     });
     // SEND - Control Forces (STOP) ==================================================
 
+    // SEND - External Wind Forces (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        let mut wind: TOPICS::wind_speed::DataType = Vector3::<f32>::zeros();
+
+        let dt = 1.0/config.interface.fps; // [s]
+        let interval = Duration::from_millis((dt * 1000.0) as u64);
+
+        loop {
+            let start_t = Instant::now();
+
+            // Convert GUI wind speed parameters to wind speed vector
+            let wind_speed = *gui_state_clone.wind_speed.read().unwrap();
+            let wind_angle_deg = *gui_state_clone.wind_angle.read().unwrap();
+            let wind_angle_rad = wind_angle_deg.to_radians();
+            wind.x = wind_speed * wind_angle_rad.cos();
+            wind.y = -wind_speed * wind_angle_rad.sin();
+            wind.z = 0.0;
+
+            // Packet to JSON
+            let wind_json = udp_topics::encode_json(&wind);
+
+            // Publish data
+            udp_utils::publish(TOPICS::wind_speed::PORT, wind_json.as_bytes()).expect("Failed to publish wind data");
+
+            // Precise way to calculate interval
+            // This way simulation is at the exact same FPS as GUI 
+            let elapsed_t = start_t.elapsed();
+            if elapsed_t < interval {
+                thread::sleep(interval - elapsed_t);
+            }
+        }
+    });
+    // SEND - External Wind Forces (STOP) ==================================================
+
+    // SEND - External Current Forces (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        let mut current: TOPICS::current_speed::DataType = Vector3::<f32>::zeros();
+
+        let dt = 1.0/config.interface.fps; // [s]
+        let interval = Duration::from_millis((dt * 1000.0) as u64);
+
+        loop {
+            let start_t = Instant::now();
+
+            // Convert GUI wind speed parameters to wind speed vector
+            let current_speed = *gui_state_clone.current_speed.read().unwrap();
+            let current_angle_deg = *gui_state_clone.current_angle.read().unwrap();
+            let current_angle_rad = current_angle_deg.to_radians();
+            current.x = current_speed * current_angle_rad.cos();
+            current.y = -current_speed * current_angle_rad.sin();
+            current.z = 0.0;
+
+            // Packet to JSON
+            let current_json = udp_topics::encode_json(&current);
+
+            // Publish data
+            udp_utils::publish(TOPICS::current_speed::PORT, current_json.as_bytes()).expect("Failed to publish water current data");
+
+            // Precise way to calculate interval
+            // This way simulation is at the exact same FPS as GUI 
+            let elapsed_t = start_t.elapsed();
+            if elapsed_t < interval {
+                thread::sleep(interval - elapsed_t);
+            }
+        }
+    });
+    // SEND - External Current Forces (STOP) ==================================================
+
     // GUI (START) ==================================================
     // Run GUI in main
     // NOTE: It must run in main else you might get event loops O_O
+    // Specify limits for the GUI
     let gui_state_clone = gui_state.clone();
     *gui_state_clone.frame_interval_ms.write().unwrap() = (1000.0/config.interface.fps) as u64; // FPS to ms
+    *gui_state_clone.show_external_forces.write().unwrap() = true; // Start GUI with showing external forces velocity vectors
+    *gui_state_clone.wind_speed_max.write().unwrap() = config.interface.wind_speed_max;
+    *gui_state_clone.current_speed_max.write().unwrap() = config.interface.current_speed_max;
+
+    // Run GUI
     gui::window(gui_state_clone);
     // GUI (STOP) ==================================================
 }

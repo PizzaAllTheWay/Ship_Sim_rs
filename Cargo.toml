@@ -29,9 +29,9 @@ path = "src/ship_sim_lib/ship_sim_lib.rs"
 
 
 [dependencies]
-# Crates for testing stuff
+# Crates for generating noise
 rand = "0.8" # Random number generator
-chrono = "0.4" # Get current time
+rand_distr = "0.4"
 
 # Crate for GUI design
 eframe = "0.27"

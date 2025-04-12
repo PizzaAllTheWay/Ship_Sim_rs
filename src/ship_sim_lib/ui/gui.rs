@@ -3,6 +3,9 @@ use eframe::egui;
 use egui::{Color32, Pos2, Shape, Stroke, Ui, Vec2};
 use std::sync::{Arc, RwLock};
 
+// Libraries for maths
+use nalgebra::Vector3;
+
 /// === SharedState ===
 /// Holds all shared simulation state across threads and GUI
 /// - ship_pos: Position of the ship in world coordinates
@@ -13,11 +16,21 @@ pub struct SharedState {
     pub ship_pos: Arc<RwLock<[f32; 2]>>, // Ship position [x, y]
     pub ship_angle: Arc<RwLock<f32>>, // Ship orientation in radians
     pub ship_speed: Arc<RwLock<[f32; 2]>>, // Heading speed and yaw speed [m/s, °/s]
+
     pub key_state_w: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
     pub key_state_a: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
     pub key_state_s: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
     pub key_state_d: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
+
     pub frame_interval_ms: Arc<RwLock<u64>>, // fps in ms
+
+    pub show_external_forces: Arc<RwLock<bool>>,
+    pub wind_speed_max: Arc<RwLock<f32>>, // [m/s]
+    pub wind_speed: Arc<RwLock<f32>>,  // [m/s]
+    pub wind_angle: Arc<RwLock<f32>>, // [°]
+    pub current_speed_max: Arc<RwLock<f32>>, // [m/s]
+    pub current_speed: Arc<RwLock<f32>>,  // [m/s]
+    pub current_angle: Arc<RwLock<f32>>, // [°]
 }
 
 /// === draw_scene ===
@@ -25,7 +38,16 @@ pub struct SharedState {
 /// - background grid
 /// - ship shape
 /// - mouse crosshair and coordinate labels
-pub fn draw_scene(ui: &mut Ui, pos: [f32; 2], angle: f32, cam_offset: [f32; 2], zoom: f32) {
+pub fn draw_scene(
+    ui: &mut Ui,
+    pos: [f32; 2],
+    angle: f32,
+    cam_offset: [f32; 2],
+    zoom: f32,
+    show_external_forces: bool,
+    wind_speed_vector: Vector3<f32>,
+    current_speed_vector: Vector3<f32>,
+) {
     // Allocate full window canvas for drawing
     let size = ui.available_size();
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -98,6 +120,90 @@ pub fn draw_scene(ui: &mut Ui, pos: [f32; 2], angle: f32, cam_offset: [f32; 2], 
         );
     }
 
+    // Draw external forces speed vectors
+    if show_external_forces {
+        let center_screen = rect.center();
+        let origin_world = [
+            (center_screen.x - origin.x) / zoom + cam_offset[0],
+            (center_screen.y - origin.y) / zoom + cam_offset[1],
+        ];
+        let origin_screen = to_screen(origin_world);
+
+        // === Draw wind speed vector ===
+        // Calculate location of vector
+        let length_scale_wind = (rect.height() * 0.01)/zoom; // 1% of screen height
+
+        let wind_scaled = Vec2::new(
+            wind_speed_vector.x * length_scale_wind,
+            wind_speed_vector.y * length_scale_wind,
+        );
+
+        let target_world = [
+            origin_world[0] + wind_scaled.x,
+            origin_world[1] + wind_scaled.y,
+        ];
+
+        let target_screen = to_screen(target_world);
+
+        let dir = (target_screen - origin_screen).normalized();
+        let perp = Vec2::new(-dir.y, dir.x);
+        let arrow_size = 20.0;
+
+        // Adjusted target for the line to leave space for the arrowhead
+        let arrow_offset = dir * arrow_size;
+        let line_end = target_screen - arrow_offset;
+
+        // Draw main line ending before the arrowhead
+        painter.line_segment(
+            [origin_screen, line_end],
+            Stroke::new(5.0, Color32::GREEN),
+        );
+
+        // Draw arrowhead at the original target
+        let p1 = target_screen;
+        let p2 = target_screen - dir * arrow_size + perp * (arrow_size * 0.5);
+        let p3 = target_screen - dir * arrow_size - perp * (arrow_size * 0.5);
+
+        painter.add(Shape::convex_polygon(vec![p1, p2, p3], Color32::GREEN, Stroke::NONE));
+
+        // === Draw current speed vector ===
+        // Calculate location of vector
+        let length_scale_current = (rect.height() * 0.1)/zoom; // 10% of screen height
+
+        let current_scaled = Vec2::new(
+            current_speed_vector.x * length_scale_current,
+            current_speed_vector.y * length_scale_current,
+        );
+
+        let target_world = [
+            origin_world[0] + current_scaled.x,
+            origin_world[1] + current_scaled.y,
+        ];
+
+        let target_screen = to_screen(target_world);
+
+        let dir = (target_screen - origin_screen).normalized();
+        let perp = Vec2::new(-dir.y, dir.x);
+        let arrow_size = 20.0;
+
+        // Adjusted target for the line to leave space for the arrowhead
+        let arrow_offset = dir * arrow_size;
+        let line_end = target_screen - arrow_offset;
+
+        // Draw main line ending before the arrowhead
+        painter.line_segment(
+            [origin_screen, line_end],
+            Stroke::new(5.0, Color32::BLUE),
+        );
+
+        // Draw arrowhead at the original target
+        let p1 = target_screen;
+        let p2 = target_screen - dir * arrow_size + perp * (arrow_size * 0.5);
+        let p3 = target_screen - dir * arrow_size - perp * (arrow_size * 0.5);
+
+        painter.add(Shape::convex_polygon(vec![p1, p2, p3], Color32::BLUE, Stroke::NONE));
+    }
+    
     // === Draw ship shape ===
     let ship_shape = [
         Vec2::new(-20.0, 0.0), // tip
@@ -162,7 +268,7 @@ impl eframe::App for SimulatorWindow {
         });
         // === GUI canvas with drag + zoom ===
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Allow camera panning by dragging
+            // Allow camera panning by dragging ----------
             let response = ui.interact(ui.max_rect(), ui.id().with("canvas"), egui::Sense::drag());
             if response.dragged() {
                 let delta = response.drag_delta();
@@ -170,7 +276,7 @@ impl eframe::App for SimulatorWindow {
                 self.camera_offset[1] -= delta.y / self.zoom;
             }
 
-            // Zoom using scroll wheel
+            // Zoom using scroll wheel ----------
             let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
             if scroll_delta != 0.0 {
                 let zoom_factor = (1.0 + scroll_delta * 0.01).clamp(0.1, 10.0);
@@ -199,12 +305,12 @@ impl eframe::App for SimulatorWindow {
             let pos = *self.state.ship_pos.read().unwrap();
             let angle = *self.state.ship_angle.read().unwrap();
 
-            // Show debug info in panel
+            // Show debug info in panel ----------
             let ship_speed  = self.state.ship_speed.write().unwrap();
 
             ui.horizontal(|ui| {
-                ui.label(format!("Ship X: {:.1} m", pos[1]));
-                ui.label(format!("Ship Y: {:.1} m", pos[0]));
+                ui.label(format!("Ship X: {:.1} m", pos[0]));
+                ui.label(format!("Ship Y: {:.1} m", -pos[1]));
                 ui.label(format!("Ship θ: {:.2}°", angle.to_degrees()));
                 ui.label(format!("Ship v: {:.2} m/s", ship_speed[0]));
                 ui.label(format!("Ship ω: {:.3}°/s", ship_speed[1]));
@@ -213,12 +319,94 @@ impl eframe::App for SimulatorWindow {
                 ui.label(format!("Pan Y: {:.1}", self.camera_offset[1]));
             });
 
-            ui.separator(); // visual divider
+            // Show external forces interface ----------
+            ui.separator();
+            ui.heading("External Forces");
+
+            // Checkbox to toggle visibility
+            {
+                let mut show_external_forces = self.state.show_external_forces.write().unwrap();
+                ui.checkbox(&mut *show_external_forces, "Show External Forces");
+            }
+
+            ui.horizontal(|ui| {
+                // === Wind Column ===
+                ui.vertical(|ui| {
+                    ui.label("Wind");
             
-            draw_scene(ui, pos, angle, self.camera_offset, self.zoom); // render everything
+                    let wind_speed_max = self.state.wind_speed_max.read().unwrap();
+                    let mut wind_speed = self.state.wind_speed.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Speed:");
+                        ui.add(egui::Slider::new(&mut *wind_speed, 0.0..=*wind_speed_max).text("m/s"));
+                    });
             
+                    let mut wind_angle = self.state.wind_angle.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Angle: ");
+                        ui.add(egui::Slider::new(&mut *wind_angle, 0.0..=360.0).text("°"));
+                    });
+                });
+            
+                ui.add_space(40.0); // spacing between wind and current columns
+            
+                // === Current Column ===
+                ui.vertical(|ui| {
+                    ui.label("Current");
+            
+                    let current_speed_max = self.state.current_speed_max.read().unwrap();
+                    let mut current_speed = self.state.current_speed.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Speed:");
+                        ui.add(egui::Slider::new(&mut *current_speed, 0.0..=*current_speed_max).text("m/s"));
+                    });
+            
+                    let mut current_angle = self.state.current_angle.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Angle: ");
+                        ui.add(egui::Slider::new(&mut *current_angle, 0.0..=360.0).text("°"));
+                    });
+                });
+            });
+
+            // Convert external forces to vectors
+            let wind_speed = *self.state.wind_speed.read().unwrap();
+            let wind_angle_deg = *self.state.wind_angle.read().unwrap();
+            let wind_angle_rad = wind_angle_deg.to_radians();
+            let wind_speed_vector = Vector3::new(
+                wind_speed * wind_angle_rad.cos(),
+                -wind_speed * wind_angle_rad.sin(),
+                0.0,
+            );
+
+            let current_speed = *self.state.current_speed.read().unwrap();
+            let current_angle_deg = *self.state.current_angle.read().unwrap();
+            let current_angle_rad = current_angle_deg.to_radians();
+            let current_speed_vector = Vector3::new(
+                current_speed * current_angle_rad.cos(),
+                -current_speed * current_angle_rad.sin(),
+                0.0,
+            );
+
+            // render 2D space ----------
+            ui.separator(); 
+
+            let show_external_forces = *self.state.show_external_forces.read().unwrap();
+
+            draw_scene(
+                ui,
+                pos,
+                angle,
+                self.camera_offset,
+                self.zoom,
+                show_external_forces,
+                wind_speed_vector,
+                current_speed_vector,
+            );
+            
+            // Wait a bit until next render
             let interval = *self.state.frame_interval_ms.read().unwrap();
-            ctx.request_repaint_after(std::time::Duration::from_millis(interval)); // Wait a bit until next render
+            ctx.request_repaint_after(std::time::Duration::from_millis(interval)); 
         });
     }
 }

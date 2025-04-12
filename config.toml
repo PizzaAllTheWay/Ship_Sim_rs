@@ -1,7 +1,7 @@
 [interface]
 fps = 60.0 # Hz
 wind_speed_max = 22.0 # Comparable to a strong Gale [m/s]
-water_current_speed_max = 3.0 # Comparable to tidal currents near a shore [m/s]
+current_speed_max = 3.0 # Comparable to tidal currents near a shore [m/s]
 
 [ship]
 mass = 10000.0 # [kg]

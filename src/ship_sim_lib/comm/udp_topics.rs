@@ -1,5 +1,5 @@
 // src/shared_data/mod.rs
-use nalgebra::{SVector, Vector2, Vector6};
+use nalgebra::{SVector, Vector2, Vector3, Vector6};
 use serde::{Deserialize, Serialize};
 
 // =====================
@@ -26,11 +26,29 @@ pub mod TOPICS {
     // Data Type [Vector6<f32>]:
     // [Fx, Fy, Fz]
     // [Torque in roll, pitch, yaw]
-    pub mod forces {
+    pub mod forces_thrusters {
         use super::*;
         use Vector6;
         pub const PORT: u16 = 5555;
         pub type DataType = Vector6<f32>;
+    }
+
+    // Data Type [Vector3<f32>]:
+    // [vx, vy, vz]
+    pub mod wind_speed {
+        use super::*;
+        use Vector3;
+        pub const PORT: u16 = 5556;
+        pub type DataType = Vector3<f32>;
+    }
+
+    // Data Type [Vector3<f32>]:
+    // [vx, vy, vz]
+    pub mod current_speed {
+        use super::*;
+        use Vector3;
+        pub const PORT: u16 = 5557;
+        pub type DataType = Vector3<f32>;
     }
 
     // Data Type [Vector12<f32>]:
@@ -41,7 +59,7 @@ pub mod TOPICS {
     pub mod x {
         use super::*;
         use Vector12;
-        pub const PORT: u16 = 5556;
+        pub const PORT: u16 = 5558;
         pub type DataType = Vector12<f32>;
     }
 
@@ -53,7 +71,7 @@ pub mod TOPICS {
     pub mod dx {
         use super::*;
         use Vector12;
-        pub const PORT: u16 = 5557;
+        pub const PORT: u16 = 5559;
         pub type DataType = Vector12<f32>;
     }
 
@@ -63,7 +81,7 @@ pub mod TOPICS {
     pub mod speed {
         use super::*;
         use Vector2;
-        pub const PORT: u16 = 5558;
+        pub const PORT: u16 = 5560;
         pub type DataType = Vector2<f32>;
     }
 }

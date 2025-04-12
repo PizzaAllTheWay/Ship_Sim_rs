@@ -6,9 +6,9 @@ use nalgebra::Vector6;
 fn main() -> std::io::Result<()> {
     loop {
         // Forces
-        let forces: TOPICS::forces::DataType = Vector6::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+        let forces: TOPICS::forces_thrusters::DataType = Vector6::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
         let forces_json = udp_topics::encode_json(&forces);
-        udp_utils::publish(TOPICS::forces::PORT, forces_json.as_bytes())?;
+        udp_utils::publish(TOPICS::forces_thrusters::PORT, forces_json.as_bytes())?;
 
         // X
         let x: TOPICS::x::DataType = Vector12::<f32>::from_element(7.0);

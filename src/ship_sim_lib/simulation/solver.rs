@@ -46,16 +46,17 @@ where
 // Runge Kutta Fehlberg method
 // Adaptive integral RK of order 4(5)
 #[allow(unused_variables)]
-pub fn rkf45_step<const N: usize, const M: usize, F>(
+pub fn rkf45_step<const N: usize, const M: usize, W, F>(
     x: &SVector<f32, N>,
     u: &SVector<f32, M>,
+    w: &W,
     dt: f32,
     f: F,
     tolerances: (f32, f32),
     dt_limits: (f32, f32),
 ) -> (SVector<f32, N>, SVector<f32, N>, f32)
 where
-    F: Fn(&SVector<f32, N>, &SVector<f32, M>) -> SVector<f32, N>,
+    F: Fn(&SVector<f32, N>, &SVector<f32, M>, &W) -> SVector<f32, N>,
 {
     let a: [[f32; 6]; 6] = [
         [            0.0,              0.0,              0.0,             0.0,          0.0, 0.0],
@@ -90,12 +91,12 @@ where
 
     // RK stages
     let mut k: [SVector<f32, N>; 6] = [SVector::zeros(); 6];
-    k[0] = f(x, u);
-    k[1] = f(&(x + dt * (a[1][0] * k[0])), u);
-    k[2] = f(&(x + dt * (a[2][0] * k[0] + a[2][1] * k[1])), u);
-    k[3] = f(&(x + dt * (a[3][0] * k[0] + a[3][1] * k[1] + a[3][2] * k[2])), u);
-    k[4] = f(&(x + dt * (a[4][0] * k[0] + a[4][1] * k[1] + a[4][2] * k[2] + a[4][3] * k[3])), u);
-    k[5] = f(&(x + dt * (a[5][0] * k[0] + a[5][1] * k[1] + a[5][2] * k[2] + a[5][3] * k[3] + a[5][4] * k[4])), u);
+    k[0] = f(x, u, w);
+    k[1] = f(&(x + dt * (a[1][0] * k[0])), u, w);
+    k[2] = f(&(x + dt * (a[2][0] * k[0] + a[2][1] * k[1])), u, w);
+    k[3] = f(&(x + dt * (a[3][0] * k[0] + a[3][1] * k[1] + a[3][2] * k[2])), u, w);
+    k[4] = f(&(x + dt * (a[4][0] * k[0] + a[4][1] * k[1] + a[4][2] * k[2] + a[4][3] * k[3])), u, w);
+    k[5] = f(&(x + dt * (a[5][0] * k[0] + a[5][1] * k[1] + a[5][2] * k[2] + a[5][3] * k[3] + a[5][4] * k[4])), u, w);
 
     // High-order estimate
     let mut x5 = x.clone();

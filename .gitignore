@@ -1,5 +1,2 @@
 /.vscode
 /target
-zenoh-queries
-.DS_Store
-src/.DS_Store
