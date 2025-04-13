@@ -114,6 +114,37 @@ fn main() {
     });
     // GET - GNSS Antenna2 (STOP) ==================================================
 
+    // GET - IMU (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for sensor data
+            let msg = udp_utils::subscribe(TOPICS::imu::PORT).unwrap();
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let imu: TOPICS::imu::DataType = udp_topics::decode_json(json_str);
+
+            // Split the Vector7 into individual parts
+            let accel = imu.fixed_rows::<3>(0).into(); // [ax, ay, az]
+            let gyro  = imu.fixed_rows::<3>(3).into(); // [angular velocity roll, pitch, yaw]
+            let mag = imu[6];
+
+            // Append to shared state
+            {
+                let mut accel_vec = gui_state_clone.imu_accel.write().unwrap();
+                accel_vec.push(accel);
+            }
+            {
+                let mut gyro_vec = gui_state_clone.imu_gyro.write().unwrap();
+                gyro_vec.push(gyro);
+            }
+            {
+                let mut mag_vec = gui_state_clone.imu_mag.write().unwrap();
+                mag_vec.push(mag);
+            }
+        }
+    });
+    // GET - IMU (STOP) ==================================================
+
 
 
     // SEND - Control Forces (START) ==================================================
@@ -240,16 +271,20 @@ fn main() {
     });
     // SEND - External Current Parameters (STOP) ==================================================
 
+
+
     // GUI (START) ==================================================
     // Run GUI in main
     // NOTE: It must run in main else you might get event loops O_O
     // Specify limits for the GUI
     let gui_state_clone = gui_state.clone();
     *gui_state_clone.frame_interval_ms.write().unwrap() = (1000.0/config.interface.fps) as u64; // FPS to ms
-    *gui_state_clone.show_external_forces.write().unwrap() = true; // Start GUI with external forces velocity vectors visible
+    *gui_state_clone.show_external_forces.write().unwrap() = false; // Start GUI with external forces velocity vectors invisible
     *gui_state_clone.wind_speed_max.write().unwrap() = config.interface.wind_speed_max;
     *gui_state_clone.current_speed_max.write().unwrap() = config.interface.current_speed_max;
-    *gui_state_clone.show_gnss_data.write().unwrap() = true; // Start GUI with gnss data visible
+    *gui_state_clone.show_gnss_data.write().unwrap() = false; // Start GUI with gnss data invisible
+    *gui_state_clone.show_imu_graphs.write().unwrap() = false; // Start GUI with imu data invisible
+    *gui_state_clone.imu_graphs_period.write().unwrap() = 6000; // Start by showing only the latest specified amount of datapoint of the IMU sensor
 
     // Run GUI
     gui::window(gui_state_clone);

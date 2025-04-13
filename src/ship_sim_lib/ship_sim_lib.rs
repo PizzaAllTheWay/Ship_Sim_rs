@@ -10,6 +10,7 @@ pub mod comm {
 pub mod models {
     pub mod current;
     pub mod gnss;
+    pub mod imu;
     pub mod ship;
     pub mod wind;
 }

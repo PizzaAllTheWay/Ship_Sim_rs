@@ -7,12 +7,18 @@ current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore
 simulation_frequency = 100.00 # [Hz]
 
 [sensor]
-gnss_pub_frequency = 1.00 #  [Hz]
+gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
 antenna1_placement = [10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
 antenna2_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
 gnss_noise = 0.25 # [%]
 gnss_accuracy = 5.5 # +- [m]
+
+imu_pub_frequency = 100.00 # [Hz]
+imu_placement = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # [m] (x, y, z), [rad] (roll, pitch, yaw) (Placement: Forward Looking) placement of the IMU relative to the center of mass on the ship body frame
+imu_accel_noise = 0.0 # ???
+imu_gyro_noise = 0.0 # ???
+imu_mag_noise = 0.0 # ???
 
 [ship]
 mass = 10000.0 # [kg]

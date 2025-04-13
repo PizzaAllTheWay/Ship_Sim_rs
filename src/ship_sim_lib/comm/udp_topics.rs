@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 // =====================
 // Custom Types
 // =====================
+pub type Vector7<T> = SVector<T, 7>;
 pub type Vector12<T> = SVector<T, 12>;
 
 // =====================
@@ -104,7 +105,7 @@ pub mod TOPICS {
     }
 
     // Data Type [Vector3<f32>]:
-    // antenna world frame: [x, y]
+    // antenna (World Frame): [x, y]
     pub mod gnss_antenna1 {
         use super::*;
         use Vector2;
@@ -113,12 +114,23 @@ pub mod TOPICS {
     }
 
     // Data Type [Vector3<f32>]:
-    // antenna world frame: [x, y]
+    // antenna (World Frame): [x, y]
     pub mod gnss_antenna2 {
         use super::*;
         use Vector2;
         pub const PORT: u16 = 5581;
         pub type DataType = Vector2<f32>;
+    }
+
+    // Data Type [Vector7<f32>]:
+    // Linear acceleration (Body Frame): [x, y, z]
+    // Angular velocity gyro (Body Frame): [roll, pitch, yaw]
+    // Angle magnetic compass (World Frame): [yaw]
+    pub mod imu {
+        use super::*;
+        use Vector7;
+        pub const PORT: u16 = 5582;
+        pub type DataType = Vector7<f32>;
     }
 }
 

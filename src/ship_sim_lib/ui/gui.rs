@@ -1,6 +1,7 @@
 // === GUI Libraries ===
 use eframe::egui;
 use egui::{Color32, Pos2, Shape, Stroke, Ui, Vec2};
+use egui_plot::{Plot, PlotPoints, Line};
 use std::sync::{Arc, RwLock};
 
 // Libraries for maths
@@ -39,6 +40,12 @@ pub struct SharedState {
     pub show_gnss_data: Arc<RwLock<bool>>,
     pub gnss_antenna1_history: Arc<RwLock<Vec<Vector2<f32>>>>, // (x, y) [m]
     pub gnss_antenna2_history: Arc<RwLock<Vec<Vector2<f32>>>>, // (x, y) [m]
+
+    pub show_imu_graphs: Arc<RwLock<bool>>,
+    pub imu_graphs_period: Arc<RwLock<u32>>, // How many of the newest samples should be displayed on the screen 
+    pub imu_accel: Arc<RwLock<Vec<Vector3<f32>>>>, // Linear acceleration (Body Frame): [x, y, z]
+    pub imu_gyro: Arc<RwLock<Vec<Vector3<f32>>>>, // Angular velocity gyro (Body Frame): [roll, pitch, yaw]
+    pub imu_mag: Arc<RwLock<Vec<f32>>>, // Angle magnetic compass (World Frame): [yaw]
 }
 
 
@@ -110,35 +117,40 @@ pub fn draw_scene(
         y += spacing;
     }
 
-    // === Draw mouse crosshair and label ===
-    let response = ui.interact(rect, ui.id().with("canvas"), egui::Sense::hover());
-    if let Some(mouse_pos) = response.hover_pos() {
-        let world_mouse = [
-            (mouse_pos.x - origin.x) / zoom + cam_offset[0],
-            (mouse_pos.y - origin.y) / zoom + cam_offset[1],
-        ];
+    // === Draw ship shape ===
+    let ship_shape = [
+        Vec2::new(-20.0, 0.0), // tip
+        Vec2::new(10.0, -10.0), // left base
+        Vec2::new(10.0, 10.0),  // right base
+    ];
 
-        // Draw crosshair lines
-        painter.line_segment(
-            [Pos2::new(mouse_pos.x, rect.top()), Pos2::new(mouse_pos.x, rect.bottom())],
-            Stroke::new(1.0, Color32::LIGHT_BLUE),
-        );
-        painter.line_segment(
-            [Pos2::new(rect.left(), mouse_pos.y), Pos2::new(rect.right(), mouse_pos.y)],
-            Stroke::new(1.0, Color32::LIGHT_BLUE),
-        );
+    // Transform ship shape by rotation and translation
+    let transformed: Vec<Pos2> = ship_shape
+        .iter()
+        .map(|v| {
+            let x = v.x * angle.cos() - v.y * angle.sin();
+            let y = v.x * angle.sin() + v.y * angle.cos();
+            to_screen([pos[0] + x, pos[1] + y])
+        })
+        .collect();
 
-        // Show world coordinate label
-        let label = format!("x: {:.1}, y: {:.1}", world_mouse[0], world_mouse[1]);
-        painter.text(
-            mouse_pos + Vec2::new(5.0, 5.0),
-            egui::Align2::LEFT_TOP,
-            label,
-            egui::FontId::monospace(12.0),
-            Color32::WHITE,
-        );
+    // Draw ship polygon (fill + outline)
+    painter.add(Shape::convex_polygon(transformed.clone(), Color32::RED, Stroke::NONE));
+    painter.add(Shape::closed_line(transformed, Stroke::new(2.0, Color32::BLACK)));
+
+    // Draw GNSS Antenna sensor points
+    if show_gnss_data {
+        for point in gnss_antenna1_history {
+            let screen = to_screen([point.x, point.y]);
+            painter.circle_filled(screen, 3.0, Color32::from_rgba_unmultiplied(255, 255, 0, 50));
+        }
+        
+        for point in gnss_antenna2_history {
+            let screen = to_screen([point.x, point.y]);
+            painter.circle_filled(screen, 3.0, Color32::from_rgba_unmultiplied(0, 255, 255, 50));
+        }  
     }
-
+    
     // Draw external forces speed vectors
     if show_external_forces {
         let center_screen = rect.center();
@@ -230,39 +242,34 @@ pub fn draw_scene(
 
         painter.add(Shape::convex_polygon(vec![p1, p2, p3], Color32::BLUE, Stroke::NONE));
     }
-    
-    // === Draw ship shape ===
-    let ship_shape = [
-        Vec2::new(-20.0, 0.0), // tip
-        Vec2::new(10.0, -10.0), // left base
-        Vec2::new(10.0, 10.0),  // right base
-    ];
 
-    // Transform ship shape by rotation and translation
-    let transformed: Vec<Pos2> = ship_shape
-        .iter()
-        .map(|v| {
-            let x = v.x * angle.cos() - v.y * angle.sin();
-            let y = v.x * angle.sin() + v.y * angle.cos();
-            to_screen([pos[0] + x, pos[1] + y])
-        })
-        .collect();
+    // === Draw mouse crosshair and label ===
+    let response = ui.interact(rect, ui.id().with("canvas"), egui::Sense::hover());
+    if let Some(mouse_pos) = response.hover_pos() {
+        let world_mouse = [
+            (mouse_pos.x - origin.x) / zoom + cam_offset[0],
+            (mouse_pos.y - origin.y) / zoom + cam_offset[1],
+        ];
 
-    // Draw ship polygon (fill + outline)
-    painter.add(Shape::convex_polygon(transformed.clone(), Color32::RED, Stroke::NONE));
-    painter.add(Shape::closed_line(transformed, Stroke::new(2.0, Color32::BLACK)));
+        // Draw crosshair lines
+        painter.line_segment(
+            [Pos2::new(mouse_pos.x, rect.top()), Pos2::new(mouse_pos.x, rect.bottom())],
+            Stroke::new(1.0, Color32::LIGHT_BLUE),
+        );
+        painter.line_segment(
+            [Pos2::new(rect.left(), mouse_pos.y), Pos2::new(rect.right(), mouse_pos.y)],
+            Stroke::new(1.0, Color32::LIGHT_BLUE),
+        );
 
-    // Draw GNSS Antenna sensor points
-    if show_gnss_data {
-        for point in gnss_antenna1_history {
-            let screen = to_screen([point.x, point.y]);
-            painter.circle_filled(screen, 3.0, Color32::from_rgba_unmultiplied(255, 255, 0, 50));
-        }
-        
-        for point in gnss_antenna2_history {
-            let screen = to_screen([point.x, point.y]);
-            painter.circle_filled(screen, 3.0, Color32::from_rgba_unmultiplied(0, 255, 255, 50));
-        }  
+        // Show world coordinate label
+        let label = format!("x: {:.1}, y: {:.1}", world_mouse[0], world_mouse[1]);
+        painter.text(
+            mouse_pos + Vec2::new(5.0, 5.0),
+            egui::Align2::LEFT_TOP,
+            label,
+            egui::FontId::monospace(12.0),
+            Color32::WHITE,
+        );
     }
 }
 
@@ -308,41 +315,9 @@ impl eframe::App for SimulatorWindow {
                 }
             }
         });
-        // === GUI canvas with drag + zoom ===
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Allow camera panning by dragging ----------
-            let response = ui.interact(ui.max_rect(), ui.id().with("canvas"), egui::Sense::drag());
-            if response.dragged() {
-                let delta = response.drag_delta();
-                self.camera_offset[0] -= delta.x / self.zoom;
-                self.camera_offset[1] -= delta.y / self.zoom;
-            }
 
-            // Zoom using scroll wheel ----------
-            let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
-            if scroll_delta != 0.0 {
-                let zoom_factor = (1.0 + scroll_delta * 0.01).clamp(0.1, 10.0);
-                let old_zoom = self.zoom;
-                self.zoom *= zoom_factor;
-
-                // Keep zoom centered on mouse
-                if let Some(mouse_pos) = ui.ctx().pointer_hover_pos() {
-                    let rect = ui.max_rect();
-                    let origin = rect.left_top();
-                    let screen_pos = [mouse_pos.x - origin.x, mouse_pos.y - origin.y];
-                    let world_before = [
-                        screen_pos[0] / old_zoom + self.camera_offset[0],
-                        screen_pos[1] / old_zoom + self.camera_offset[1],
-                    ];
-                    let world_after = [
-                        screen_pos[0] / self.zoom + self.camera_offset[0],
-                        screen_pos[1] / self.zoom + self.camera_offset[1],
-                    ];
-                    self.camera_offset[0] += world_before[0] - world_after[0];
-                    self.camera_offset[1] += world_before[1] - world_after[1];
-                }
-            }
-
+        // All the sliders go here
+        egui::TopBottomPanel::top("top_controls").resizable(false).show(ctx, |ui| {
             // Read shared state
             let pos = *self.state.ship_pos.read().unwrap();
             let angle = *self.state.ship_angle.read().unwrap();
@@ -445,7 +420,156 @@ impl eframe::App for SimulatorWindow {
                     let mut show_gnss_data = self.state.show_gnss_data.write().unwrap();
                     ui.checkbox(&mut *show_gnss_data, "Show GNSS Data");
                 });
+
+                // === IMU Column ===
+                ui.vertical(|ui| {
+                    // Header here because eframe does NOT support mor custom widgets
+                    ui.heading("");
+                    ui.label("");
+
+                    // IMU Interface
+                    ui.label("IMU");
+                    let mut show_imu_graphs = self.state.show_imu_graphs.write().unwrap();
+                    ui.checkbox(&mut *show_imu_graphs, "Show IMU Graphs");
+
+                    let mut imu_graphs_period = self.state.imu_graphs_period.write().unwrap();
+                    ui.horizontal(|ui| {
+                        ui.label("Period: ");
+                        ui.add(egui::Slider::new(&mut *imu_graphs_period, 0_u32..=60000_u32).text("samples"));
+                    });
+
+                });
             });
+
+            // Wait a bit until next render
+            let interval = *self.state.frame_interval_ms.read().unwrap();
+            ctx.request_repaint_after(std::time::Duration::from_millis(interval)); 
+        });
+
+        // render graphs ----------
+        egui::SidePanel::right("bottom_graphs")
+            .resizable(true)
+            .default_width(ctx.available_rect().width() * 0.5)
+            .show(ctx, |ui| {
+                if *self.state.show_imu_graphs.read().unwrap() {
+                    let accel_data = self.state.imu_accel.read().unwrap();
+                    let gyro_data = self.state.imu_gyro.read().unwrap();
+                    let mag_data = self.state.imu_mag.read().unwrap();
+                    let period = *self.state.imu_graphs_period.read().unwrap() as usize;
+            
+                    let tail = |vec: &Vec<_>| -> Vec<_> {
+                        let len = vec.len();
+                        if len > period {
+                            vec[len - period..].to_vec()
+                        } else {
+                            vec.clone()
+                        }
+                    };
+            
+                    let accel_tail = tail(&accel_data);
+                    let gyro_tail = tail(&gyro_data);
+                    let mag_tail: Vec<f32> = mag_data.iter()
+                        .rev()
+                        .take(period)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect();
+            
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let total_height = ui.available_height();
+                        let accel_height = total_height * 0.3;
+                        let gyro_height = total_height * 0.3;
+                        let mag_height  = total_height * 0.3;
+                    
+                        ui.label("IMU Acceleration");
+                        Plot::new("accel_plot")
+                            .height(accel_height)
+                            .legend(Default::default())
+                            .x_axis_label("samples")
+                            .y_axis_label("m/s²")
+                            .show(ui, |plot_ui| {
+                                for i in 0..3 {
+                                    let values: Vec<_> = accel_tail.iter().enumerate()
+                                        .map(|(j, v)| [j as f64, v[i] as f64])
+                                        .collect();
+                                    plot_ui.line(Line::new(PlotPoints::from(values)).name(&["ax", "ay", "az"][i]));
+                                }
+                            });
+
+                        ui.label("IMU Angular Velocity");
+                        Plot::new("gyro_plot")
+                            .height(gyro_height)
+                            .legend(Default::default())
+                            .x_axis_label("samples")
+                            .y_axis_label("rad/s")
+                            .show(ui, |plot_ui| {
+                                for i in 0..3 {
+                                    let values: Vec<_> = gyro_tail.iter().enumerate()
+                                        .map(|(j, v)| [j as f64, v[i] as f64])
+                                        .collect();
+                                    plot_ui.line(Line::new(PlotPoints::from(values)).name(&["gx", "gy", "gz"][i]));
+                                }
+                            });
+
+                        ui.label("IMU Yaw Angle");
+                        Plot::new("mag_plot")
+                            .height(mag_height)
+                            .legend(Default::default())
+                            .x_axis_label("samples")
+                            .y_axis_label("rad")
+                            .show(ui, |plot_ui| {
+                                let values: Vec<_> = mag_tail.iter().enumerate()
+                                    .map(|(j, v)| [j as f64, *v as f64])
+                                    .collect();
+                                plot_ui.line(Line::new(PlotPoints::from(values)).name("yaw"));
+                            });
+                    });
+                }
+
+                // Wait a bit until next render
+                let interval = *self.state.frame_interval_ms.read().unwrap();
+                ctx.request_repaint_after(std::time::Duration::from_millis(interval)); 
+            }
+        );
+
+        // === GUI canvas with drag + zoom ===
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Allow camera panning by dragging ----------
+            let response = ui.interact(ui.max_rect(), ui.id().with("canvas"), egui::Sense::drag());
+            if response.dragged() {
+                let delta = response.drag_delta();
+                self.camera_offset[0] -= delta.x / self.zoom;
+                self.camera_offset[1] -= delta.y / self.zoom;
+            }
+
+            // Zoom using scroll wheel ----------
+            let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
+            if scroll_delta != 0.0 {
+                let zoom_factor = (1.0 + scroll_delta * 0.01).clamp(0.1, 10.0);
+                let old_zoom = self.zoom;
+                self.zoom *= zoom_factor;
+
+                // Keep zoom centered on mouse
+                if let Some(mouse_pos) = ui.ctx().pointer_hover_pos() {
+                    let rect = ui.max_rect();
+                    let origin = rect.left_top();
+                    let screen_pos = [mouse_pos.x - origin.x, mouse_pos.y - origin.y];
+                    let world_before = [
+                        screen_pos[0] / old_zoom + self.camera_offset[0],
+                        screen_pos[1] / old_zoom + self.camera_offset[1],
+                    ];
+                    let world_after = [
+                        screen_pos[0] / self.zoom + self.camera_offset[0],
+                        screen_pos[1] / self.zoom + self.camera_offset[1],
+                    ];
+                    self.camera_offset[0] += world_before[0] - world_after[0];
+                    self.camera_offset[1] += world_before[1] - world_after[1];
+                }
+            }
+
+            
 
             // Convert external forces to vectors
             let min_wind_length = 10.0;
@@ -470,6 +594,9 @@ impl eframe::App for SimulatorWindow {
 
             // render 2D space ----------
             ui.separator(); 
+
+            let pos = *self.state.ship_pos.read().unwrap();
+            let angle = *self.state.ship_angle.read().unwrap();
 
             let show_external_forces = *self.state.show_external_forces.read().unwrap();
             let wind_noise = *self.state.wind_noise.read().unwrap();

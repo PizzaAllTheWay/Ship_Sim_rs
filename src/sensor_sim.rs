@@ -3,6 +3,7 @@ use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::{self, TOPICS};
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::models::gnss;
+use ship_sim_lib::models::imu;
 
 // Library for data formatting
 use serde::Deserialize;
@@ -31,6 +32,12 @@ struct SensorConfig {
     antenna2_placement: [f32; 3],
     gnss_noise: f32,
     gnss_accuracy: f32,
+
+    imu_pub_frequency: f32,
+    imu_placement: [f32; 6],
+    imu_accel_noise: f32,
+    imu_gyro_noise: f32,
+    imu_mag_noise: f32,
 }
 
 #[derive(Deserialize)]
@@ -111,7 +118,7 @@ fn main() {
             let r_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * r_lin_w;
 
             // Simulate gnss
-            let (gnss_antenna1_b, gnss_antenna2_b) = gnss::simulate_gnss(
+            let (gnss_antenna1_b, gnss_antenna2_b) = gnss::simulate(
                 r_lin_b, 
                 antenna1_placement, 
                 antenna2_placement, 
@@ -135,6 +142,50 @@ fn main() {
         }
     });
     // SEND - GNSS Data (STOP) ==================================================
+
+    // SEND - IMU Data (START) ==================================================
+    let x_clone = x.clone();
+    let dx_clone = dx.clone();
+    thread::spawn(move || {
+        let dt = 1.0/config.sensor.imu_pub_frequency; // [s]
+        
+        loop {
+            // Read the ground truth and wait a bit before publishing
+            // IMU has a consistent publishing rate so no need for variation in delay
+            let x_w = *x_clone.read().unwrap();
+            let dx_w = *dx_clone.read().unwrap();
+
+            let interval = Duration::from_millis((dt * 1000.0) as u64);
+            thread::sleep(interval);
+
+            // Split up states into manageable subparts
+            let r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+            let a_lin_w: Vector3<f32> = dx_w.fixed_rows::<3>(0).into(); // [ax, ay, az]
+            let v_ang_w: Vector3<f32> = dx_w.fixed_rows::<3>(9).into(); // [angular velocity in roll, pitch, yaw]
+
+            // Inverse Kinematics
+            let a_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * a_lin_w;
+            let v_ang_b: Vector3<f32> = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
+
+            // Simulate gnss
+            let (imu_accel, imu_gyro, imu_mag) = imu::simulate(
+                a_lin_b,
+                v_ang_b,
+                r_ang_w[2],
+            );
+
+            // Publish data
+            let mut imu: TOPICS::imu::DataType = TOPICS::imu::DataType::zeros();
+            imu.fixed_rows_mut::<3>(0).copy_from(&imu_accel); // [ax, ay, az]
+            imu.fixed_rows_mut::<3>(3).copy_from(&imu_gyro);  // [gx, gy, gz]
+            imu[6] = imu_mag; // Magnetic yaw (ψ)
+
+            let imu_json = udp_topics::encode_json(&imu);
+
+            udp_utils::publish(TOPICS::imu::PORT, imu_json.as_bytes()).expect("Failed to publish imu data");
+        }
+    });
+    // SEND - IMU Data (STOP) ==================================================
 
     // Idle (START) ==================================================
     // Ensures we continue multithreading
