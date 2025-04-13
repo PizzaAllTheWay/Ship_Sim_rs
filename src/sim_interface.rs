@@ -78,6 +78,44 @@ fn main() {
     });
     // GET - Speed (STOP) ==================================================
 
+    // GET - GNSS Antenna1 (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for sensor data
+            let msg = udp_utils::subscribe(TOPICS::gnss_antenna1::PORT).unwrap();
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let antenna1: TOPICS::gnss_antenna1::DataType = udp_topics::decode_json(json_str);
+
+            // Append to sensor history
+            {
+                let mut history = gui_state_clone.gnss_antenna1_history.write().unwrap();
+                history.push(antenna1);
+            }
+        }
+    });
+    // GET - GNSS Antenna1 (STOP) ==================================================
+
+    // GET - GNSS Antenna2 (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for sensor data
+            let msg = udp_utils::subscribe(TOPICS::gnss_antenna2::PORT).unwrap();
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let antenna2: TOPICS::gnss_antenna2::DataType = udp_topics::decode_json(json_str);
+
+            // Append to sensor history
+            {
+                let mut history = gui_state_clone.gnss_antenna2_history.write().unwrap();
+                history.push(antenna2);
+            }
+        }
+    });
+    // GET - GNSS Antenna2 (STOP) ==================================================
+
+
+
     // SEND - Control Forces (START) ==================================================
     let gui_state_clone = gui_state.clone();
     thread::spawn(move || {
@@ -208,9 +246,10 @@ fn main() {
     // Specify limits for the GUI
     let gui_state_clone = gui_state.clone();
     *gui_state_clone.frame_interval_ms.write().unwrap() = (1000.0/config.interface.fps) as u64; // FPS to ms
-    *gui_state_clone.show_external_forces.write().unwrap() = true; // Start GUI with showing external forces velocity vectors
+    *gui_state_clone.show_external_forces.write().unwrap() = true; // Start GUI with external forces velocity vectors visible
     *gui_state_clone.wind_speed_max.write().unwrap() = config.interface.wind_speed_max;
     *gui_state_clone.current_speed_max.write().unwrap() = config.interface.current_speed_max;
+    *gui_state_clone.show_gnss_data.write().unwrap() = true; // Start GUI with gnss data visible
 
     // Run GUI
     gui::window(gui_state_clone);

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # List of binary names (without .rs extension)
-BINS=("ship_sim" "external_force_sim" "sim_interface")
+BINS=("ship_sim" "external_force_sim" "sensor_sim" "sim_interface")
 
 # Handle Ctrl+C (SIGINT)
 trap 'echo "Stopping..."; kill 0; exit' INT

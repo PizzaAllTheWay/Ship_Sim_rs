@@ -19,6 +19,10 @@ path = "src/external_force_sim.rs"
 [[bin]]
 name = "ship_sim"
 path = "src/ship_sim.rs"
+
+[[bin]]
+name = "sensor_sim"
+path = "src/sensor_sim.rs"
 # ====================================================================================================
 
 

@@ -102,6 +102,24 @@ pub mod TOPICS {
         pub const PORT: u16 = 5572;
         pub type DataType = Vector2<f32>;
     }
+
+    // Data Type [Vector3<f32>]:
+    // antenna world frame: [x, y]
+    pub mod gnss_antenna1 {
+        use super::*;
+        use Vector2;
+        pub const PORT: u16 = 5580;
+        pub type DataType = Vector2<f32>;
+    }
+
+    // Data Type [Vector3<f32>]:
+    // antenna world frame: [x, y]
+    pub mod gnss_antenna2 {
+        use super::*;
+        use Vector2;
+        pub const PORT: u16 = 5581;
+        pub type DataType = Vector2<f32>;
+    }
 }
 
 // =====================

@@ -1,18 +1,26 @@
 [interface]
-fps = 60.0 # Hz
-wind_speed_max = 22.0 # Comparable to a strong Gale [m/s]
-current_speed_max = 3.0 # Comparable to tidal currents near a shore [m/s]
+fps = 60.0 # [Hz]
+wind_speed_max = 22.0 # [m/s] Comparable to a strong Gale 
+current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore 
 
 [external_force]
-simulation_frequency = 100.00 # Hz
+simulation_frequency = 100.00 # [Hz]
+
+[sensor]
+gnss_pub_frequency = 1.00 #  [Hz]
+gnss_pub_variance = 0.1 # [%] variation in publishing frequency
+antenna1_placement = [10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
+antenna2_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
+gnss_noise = 0.25 # [%]
+gnss_accuracy = 5.5 # +- [m]
 
 [ship]
 mass = 10000.0 # [kg]
 length = 30.0 # [m]
 radius = 10.0 # [m]
-dimensions = [10.0, 30.0] # (radius, length)
-velocity_linear_max = 10.00 # Maximum linear speed the ship can reach [m/s]
-velocity_angular_max = 0.15  # Maximum angular speed the ship can reach [rad/s]
-simulation_frequency = 100.00 # Hz
+dimensions = [10.0, 30.0] # [m] (radius, length)
+velocity_linear_max = 10.00 # [m/s] Maximum linear speed the ship can reach 
+velocity_angular_max = 0.15  # [rad/s] Maximum angular speed the ship can reach 
+simulation_frequency = 100.00 # [Hz}
 
 

@@ -173,7 +173,7 @@ fn main() {
             let current_speed_json = udp_topics::encode_json(&current_speed);
 
             // Publish data
-            udp_utils::publish(TOPICS::current_speed::PORT, current_speed_json.as_bytes()).expect("Failed to publish wind data");
+            udp_utils::publish(TOPICS::current_speed::PORT, current_speed_json.as_bytes()).expect("Failed to publish water current data");
 
             // Precise way to calculate interval
             // This way simulation is at the exact same FPS as GUI 

@@ -4,7 +4,9 @@ use egui::{Color32, Pos2, Shape, Stroke, Ui, Vec2};
 use std::sync::{Arc, RwLock};
 
 // Libraries for maths
-use nalgebra::Vector3;
+use nalgebra::{Vector2, Vector3};
+
+
 
 /// === SharedState ===
 /// Holds all shared simulation state across threads and GUI
@@ -33,7 +35,13 @@ pub struct SharedState {
     pub current_speed: Arc<RwLock<f32>>,  // [m/s]
     pub current_angle: Arc<RwLock<f32>>, // [°]
     pub current_noise: Arc<RwLock<f32>>, // [%]
+
+    pub show_gnss_data: Arc<RwLock<bool>>,
+    pub gnss_antenna1_history: Arc<RwLock<Vec<Vector2<f32>>>>, // (x, y) [m]
+    pub gnss_antenna2_history: Arc<RwLock<Vec<Vector2<f32>>>>, // (x, y) [m]
 }
+
+
 
 /// === draw_scene ===
 /// Draws the simulation scene including:
@@ -42,15 +50,22 @@ pub struct SharedState {
 /// - mouse crosshair and coordinate labels
 pub fn draw_scene(
     ui: &mut Ui,
+
     pos: [f32; 2],
     angle: f32,
+
     cam_offset: [f32; 2],
     zoom: f32,
+
     show_external_forces: bool,
     wind_speed_vector: Vector3<f32>,
     wind_noise: f32,
     current_speed_vector: Vector3<f32>,
     current_noise: f32,
+
+    show_gnss_data: bool,
+    gnss_antenna1_history: &[Vector2<f32>],
+    gnss_antenna2_history: &[Vector2<f32>],
 ) {
     // Allocate full window canvas for drawing
     let size = ui.available_size();
@@ -236,7 +251,22 @@ pub fn draw_scene(
     // Draw ship polygon (fill + outline)
     painter.add(Shape::convex_polygon(transformed.clone(), Color32::RED, Stroke::NONE));
     painter.add(Shape::closed_line(transformed, Stroke::new(2.0, Color32::BLACK)));
+
+    // Draw GNSS Antenna sensor points
+    if show_gnss_data {
+        for point in gnss_antenna1_history {
+            let screen = to_screen([point.x, point.y]);
+            painter.circle_filled(screen, 3.0, Color32::from_rgba_unmultiplied(255, 255, 0, 50));
+        }
+        
+        for point in gnss_antenna2_history {
+            let screen = to_screen([point.x, point.y]);
+            painter.circle_filled(screen, 3.0, Color32::from_rgba_unmultiplied(0, 255, 255, 50));
+        }  
+    }
 }
+
+
 
 // ====================
 // SIMULATOR APP STATE
@@ -331,19 +361,22 @@ impl eframe::App for SimulatorWindow {
                 ui.label(format!("Pan Y: {:.1}", self.camera_offset[1]));
             });
 
-            // Show external forces interface ----------
+            // Interaction interface ----------
             ui.separator();
-            ui.heading("External Forces");
-
-            // Checkbox to toggle visibility
-            {
-                let mut show_external_forces = self.state.show_external_forces.write().unwrap();
-                ui.checkbox(&mut *show_external_forces, "Show External Forces");
-            }
-
             ui.horizontal(|ui| {
-                // === Wind Column ===
+                // Show external forces interface ----------
+                // === Wind Column + Header ===
                 ui.vertical(|ui| {
+                    // Header here because eframe does NOT support mor custom widgets
+                    ui.heading("External Forces");
+
+                    // Checkbox to toggle visibility of external forces
+                    {
+                        let mut show_external_forces = self.state.show_external_forces.write().unwrap();
+                        ui.checkbox(&mut *show_external_forces, "Show External Forces");
+                    }
+
+                    // Wind interface
                     ui.label("Wind");
             
                     let wind_speed_max = self.state.wind_speed_max.read().unwrap();
@@ -361,15 +394,22 @@ impl eframe::App for SimulatorWindow {
 
                     let mut wind_noise = self.state.wind_noise.write().unwrap();
                     ui.horizontal(|ui| {
-                        ui.label("Noise:  ");
+                        ui.label("Noise: ");
                         ui.add(egui::Slider::new(&mut *wind_noise, 0.0..=5.0).text("%"));
                     });
+
+                    
                 });
             
                 ui.add_space(40.0); // spacing between wind and current columns
             
                 // === Current Column ===
                 ui.vertical(|ui| {
+                    // Header here because eframe does NOT support mor custom widgets
+                    ui.heading("");
+                    ui.label("");
+
+                    // Current Interface 
                     ui.label("Current");
             
                     let current_speed_max = self.state.current_speed_max.read().unwrap();
@@ -387,9 +427,23 @@ impl eframe::App for SimulatorWindow {
 
                     let mut current_noise = self.state.current_noise.write().unwrap();
                     ui.horizontal(|ui| {
-                        ui.label("Noise:  ");
+                        ui.label("Noise: ");
                         ui.add(egui::Slider::new(&mut *current_noise, 0.0..=1.0).text("%"));
                     });
+                });
+
+                ui.add_space(40.0); // spacing
+
+                // === GNSS Column + Header ===
+                ui.vertical(|ui| {
+                    // Header here because eframe does NOT support mor custom widgets
+                    ui.heading("Sensors");
+                    ui.label("");
+
+                    // GNSS Interface
+                    ui.label("GNSS");
+                    let mut show_gnss_data = self.state.show_gnss_data.write().unwrap();
+                    ui.checkbox(&mut *show_gnss_data, "Show GNSS Data");
                 });
             });
 
@@ -421,6 +475,10 @@ impl eframe::App for SimulatorWindow {
             let wind_noise = *self.state.wind_noise.read().unwrap();
             let current_noise = *self.state.current_noise.read().unwrap() * 5.0; // Since wind noise % slider is x5 bigger, for consistent vectors compensate for it here
 
+            let show_gnss_data = *self.state.show_gnss_data.read().unwrap();
+            let gnss_antenna1_history = self.state.gnss_antenna1_history.read().unwrap();
+            let gnss_antenna2_history = self.state.gnss_antenna2_history.read().unwrap();
+
             draw_scene(
                 ui,
                 pos,
@@ -431,7 +489,10 @@ impl eframe::App for SimulatorWindow {
                 wind_speed_vector,
                 wind_noise,
                 current_speed_vector,
-                current_noise
+                current_noise,
+                show_gnss_data,
+                &gnss_antenna1_history,
+                &gnss_antenna2_history,
             );
             
             // Wait a bit until next render
@@ -440,6 +501,8 @@ impl eframe::App for SimulatorWindow {
         });
     }
 }
+
+
 
 /// === window ===
 /// Launch GUI with provided shared state and run until closed
