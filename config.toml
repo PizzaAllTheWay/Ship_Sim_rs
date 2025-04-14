@@ -7,6 +7,7 @@ current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore
 simulation_frequency = 100.00 # [Hz]
 
 [sensor]
+# Assuming a good consumer grade GNSS
 gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
 antenna1_placement = [10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
@@ -14,11 +15,18 @@ antenna2_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Backwards) pl
 gnss_noise = 0.25 # [%]
 gnss_accuracy = 5.5 # +- [m]
 
+# Assuming a good consumer grade IMU
 imu_pub_frequency = 100.00 # [Hz]
-imu_placement = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # [m] (x, y, z), [rad] (roll, pitch, yaw) (Placement: Forward Looking) placement of the IMU relative to the center of mass on the ship body frame
-imu_accel_noise = 0.0 # ???
-imu_gyro_noise = 0.0 # ???
-imu_mag_noise = 0.0 # ???
+# ?NOTE: Because of how Interface portrays information and because of the right hand rule of NED frame, the IMU must be rotate by YAW 180 [deg] or pi [rad] in order for it to keep consistent with positive x and y directions
+imu_placement = [0.0, 0.0, 0.0, 0.0, 0.0, 3.14] # [m] (x, y, z), [rad] (roll, pitch, yaw) (Placement: Forward Looking) placement of the IMU relative to the center of mass on the ship body frame
+imu_noise = 0.30 # [%]
+imu_accel_noise = 0.05 # [m/s²]
+imu_gyro_noise = 0.005 # [rad/s / h]
+imu_mag_noise = 0.02 # [rad / h]
+imu_resolution = 16 # [bit]
+imu_accel_fsr = 16.0 # [m/s²] full scale resolution
+imu_gyro_fsr = 17.45 # [rad/s] full scale resolution
+imu_mag_fsr = 6.28 # [rad] full scale resolution
 
 [ship]
 mass = 10000.0 # [kg]

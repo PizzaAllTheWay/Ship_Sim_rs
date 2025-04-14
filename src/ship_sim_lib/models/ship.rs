@@ -9,6 +9,8 @@ pub struct ShipDynamics {
     pub m: f32,                // mass of the boat [kg]
     pub dimensions: [f32; 2],  // dimensions of the boat (r, l) [m]
     pub I_inv: Matrix3<f32>,   // inverse moment of inertia for faster computation [1/kg*m²]
+    pub v_lin_max: f32, // [m/s]
+    pub v_ang_max: f32, // [rad/s]
 }
 
 impl ShipDynamics {
@@ -17,6 +19,8 @@ impl ShipDynamics {
     pub fn new(
         m: f32,
         dimensions: [f32; 2],
+        velocity_lin_max: f32,
+        velocity_ang_max: f32,
     ) -> Self {
         // Assume ship is a cylinder
         // Moment of inertia for a solid cylinder
@@ -47,6 +51,31 @@ impl ShipDynamics {
             m,
             dimensions,
             I_inv,
+            v_lin_max: velocity_lin_max, // ! PASS DOWN SPEED
+            v_ang_max: velocity_ang_max, // ! PASS DOWN SPEED
+        }
+    }
+
+
+    /// Applies directional exponential decay to a vector `input`
+    /// when its direction matches the corresponding `reference` vector
+    /// and the reference magnitude approaches a `limit`.
+    pub fn apply_directional_decay(
+        &self,
+        input: &mut Vector3<f32>,
+        reference: Vector3<f32>,
+        limit: f32,
+        decay_rate: f32,
+    ) {
+        for i in 0..3 {
+            let ref_val = reference[i];
+            let ref_abs = ref_val.abs();
+            let sign_match = ref_val.signum() == input[i].signum();
+
+            if sign_match {
+                let decay = (-(decay_rate * ref_abs / limit).clamp(0.0, decay_rate)).exp();
+                input[i] *= decay;
+            }
         }
     }
 
@@ -69,7 +98,7 @@ impl ShipDynamics {
     ) -> (Vector3<f32>, Vector3<f32>) {
         // Dampening ----------
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability 
-        let d_lin: f32 = 0.080;
+        let d_lin: f32 = 0.085;
         let d_ang: f32 = 200000.0;
         let mut force_dampening = (-d_lin) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
@@ -160,8 +189,10 @@ impl ShipDynamics {
         let torque_x = torque_dampening + torque_drag;
 
         // u
-        let force_u = force_thrusters;
-        let torque_u = torque_thrusters;
+        let mut force_u = force_thrusters;
+        let mut torque_u = torque_thrusters;
+        self.apply_directional_decay(&mut force_u, v_lin, self.v_lin_max, 10.0);
+        self.apply_directional_decay(&mut torque_u, v_ang, self.v_ang_max, 10.0);
 
         // w
         let force_w = force_wind + force_current;

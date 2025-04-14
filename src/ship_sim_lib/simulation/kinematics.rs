@@ -41,6 +41,17 @@ pub fn r_world_to_body(euler_angles: Vector3<f32>) -> Matrix3<f32> {
     r_body_to_world(euler_angles).transpose()
 }
 
+/// Full rotation matrix from object to body using Euler ZYX (yaw → pitch → roll)
+pub fn r_object_to_body(euler_angles: Vector3<f32>) -> Matrix3<f32> {
+    let (roll, pitch, yaw) = (euler_angles.x, euler_angles.y, euler_angles.z);
+    r_z(yaw) * r_y(pitch) * r_x(roll)
+}
+
+/// Rotation matrix from body to object (inverse of ZYX Euler rotation)
+pub fn r_body_to_object(euler_angles: Vector3<f32>) -> Matrix3<f32> {
+    r_object_to_body(euler_angles).transpose()
+}
+
 pub fn jacobian_angular_velocity_zyx(euler_angles: Vector3<f32>) -> Matrix3<f32> {
     let (phi, theta, _) = (euler_angles[0], euler_angles[1], euler_angles[2]);
 

@@ -53,11 +53,16 @@ impl ODE {
         x_0: Vector12<f32>, // Initial states
         ship_mass: f32, // [kg]
         ship_dimensions: [f32; 2], // (r, l) [m]
+        velocity_linear_max: f32, // [m/s]
+        velocity_angular_max: f32, // [rad/s]
+
     ) -> Self {
         // Initialize ship dynamics        
         let ship_dynamic = ship::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
+            velocity_linear_max,
+            velocity_angular_max,
         );
 
         // Initialize starting conditions
@@ -105,6 +110,34 @@ impl ODE {
             w_wind_b,
             w_current_b,
         );
+
+        // Limit states ----------
+        // If acceleration is very small put it to 0 for numerical stability
+        // let a_lin_b = if a_lin_b.norm() < 0.01 {
+        //     Vector3::zeros()
+        // } else {
+        //     a_lin_b
+        // };
+
+        // let v_norm = v_lin_b.norm();
+        // let a_norm = a_lin_b.norm();
+        // let speed_limit = self.velocity_linear_max;
+
+        // // Clamp only if we're exceeding speed and accelerating in same direction
+        // let a_lin_b = if v_norm > speed_limit && v_lin_b.dot(&a_lin_b) > 0.0 {
+        //     Vector3::zeros()
+        // } else {
+        //     a_lin_b
+        // };
+
+
+        // let v_ang_w = if v_ang_w.norm() > config.ship.velocity_angular_max {
+        //     v_ang_w.normalize() * config.ship.velocity_angular_max
+        // } else if v_ang_w.norm() < 0.0001 {
+        //     Vector3::zeros()
+        // } else {
+        //     v_ang_w
+        // };  
 
         // Kinematics
         let a_lin_w = kinematics::linear_accel_body_to_world(r_ang_w, a_lin_b,);
@@ -202,6 +235,8 @@ fn main() {
             x, 
             config.ship.mass,
             config.ship.dimensions,
+            config.ship.velocity_linear_max,
+            config.ship.velocity_angular_max,
         );   
         let mut u: Vector6<f32>;
 
@@ -244,30 +279,6 @@ fn main() {
                 dt_limits,
             );
 
-            // Limit speed ----------
-            // Because of many non linearity's, we must clamp the speed to make sure we don't speed up exponentially
-            let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
-            let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
-
-            let v_lin_w = if v_lin_w.norm() > config.ship.velocity_linear_max {
-                v_lin_w.normalize() * config.ship.velocity_linear_max
-            } else if v_lin_w.norm() < 0.01 {
-                Vector3::zeros()
-            } else {
-                v_lin_w
-            };
-
-            let v_ang_w = if v_ang_w.norm() > config.ship.velocity_angular_max {
-                v_ang_w.normalize() * config.ship.velocity_angular_max
-            } else if v_ang_w.norm() < 0.0001 {
-                Vector3::zeros()
-            } else {
-                v_ang_w
-            };
-
-            x.fixed_rows_mut::<3>(0).copy_from(&v_lin_w); // [vx, vy, vz]
-            x.fixed_rows_mut::<3>(3).copy_from(&v_ang_w); // [angular velocity in roll, pitch, yaw]
-
             // Publish simulated data ----------
             // x
             let x_json = udp_topics::encode_json(&x);
@@ -279,6 +290,8 @@ fn main() {
 
             // Speed
             let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+            let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
+            let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
 
             let v_lin_b = kinematics::linear_velocity_world_to_body(r_ang_w, v_lin_w);
             let v_ang_b = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);

@@ -35,9 +35,14 @@ struct SensorConfig {
 
     imu_pub_frequency: f32,
     imu_placement: [f32; 6],
+    imu_noise: f32,
     imu_accel_noise: f32,
     imu_gyro_noise: f32,
     imu_mag_noise: f32,
+    imu_resolution: u32,
+    imu_accel_fsr: f32,
+    imu_gyro_fsr: f32,
+    imu_mag_fsr: f32,
 }
 
 #[derive(Deserialize)]
@@ -167,11 +172,31 @@ fn main() {
             let a_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * a_lin_w;
             let v_ang_b: Vector3<f32> = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
 
+            let imu_pos_b = Vector3::from_column_slice(&config.sensor.imu_placement[0..3]);
+            let imu_rot_b = Vector3::from_column_slice(&config.sensor.imu_placement[3..6]);
+
+            let r_body_to_imu = kinematics::r_body_to_object(imu_rot_b);
+            let r_world_to_body = kinematics::r_world_to_body(r_ang_w); // ship's current rotation
+
             // Simulate gnss
             let (imu_accel, imu_gyro, imu_mag) = imu::simulate(
                 a_lin_b,
                 v_ang_b,
                 r_ang_w[2],
+                imu_pos_b,
+                r_body_to_imu,
+                r_world_to_body,
+
+                config.sensor.imu_noise,
+                config.sensor.imu_accel_noise,
+                config.sensor.imu_gyro_noise,
+                config.sensor.imu_mag_noise,
+                config.sensor.imu_pub_frequency,
+
+                config.sensor.imu_resolution,
+                config.sensor.imu_accel_fsr,
+                config.sensor.imu_gyro_fsr,
+                config.sensor.imu_mag_fsr,
             );
 
             // Publish data
