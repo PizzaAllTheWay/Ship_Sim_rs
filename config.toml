@@ -1,12 +1,31 @@
+[ship]
+simulation_frequency = 100.00 # [Hz]
+mass = 10000.0 # [kg]
+length = 30.0 # [m]
+radius = 10.0 # [m]
+dimensions = [10.0, 30.0] # [m] (radius, length)
+velocity_linear_max = 10.00 # [m/s] Maximum linear speed the ship can reach 
+velocity_angular_max = 0.15  # [rad/s] Maximum angular speed the ship can reach 
+x_0 = [
+    0.0, 0.0, 0.0, # [vx, vy, vz]
+    0.0, 0.0, 0.0, # [wx, wy, wz]
+    0.0, 0.0, 0.0, # [x, y, z]
+    0.0, 0.0, 0.0, # [roll, pitch, yaw]
+]
+u_0 = [
+    0.0, 0.0, 0.0, # [Fx, Fy, Fz]
+    0.0, 0.0, 0.0, # [Tx, Ty, Tz]
+]
+
 [interface]
 fps = 60.0 # [Hz]
+
+[external_forces]
+simulation_frequency = 100.00 # [Hz]
 wind_speed_max = 22.0 # [m/s] Comparable to a strong Gale 
 current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore 
 
-[external_force]
-simulation_frequency = 100.00 # [Hz]
-
-[sensor]
+[sensors]
 # Assuming a good consumer grade GNSS
 gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
@@ -37,13 +56,27 @@ imu_accel_fsr = 16.0 # [m/s²] full scale resolution
 imu_gyro_fsr = 17.45 # [rad/s] full scale resolution
 imu_mag_fsr = 6.28 # [rad] full scale resolution
 
-[ship]
-mass = 10000.0 # [kg]
-length = 30.0 # [m]
-radius = 10.0 # [m]
-dimensions = [10.0, 30.0] # [m] (radius, length)
-velocity_linear_max = 10.00 # [m/s] Maximum linear speed the ship can reach 
-velocity_angular_max = 0.15  # [rad/s] Maximum angular speed the ship can reach 
-simulation_frequency = 100.00 # [Hz}
+[estimators]
+kf_pub_frequency = 100.00 # [Hz]
+# ?NOTE: Never have 0.0 in P_0, as that indicates we are 100% confident in our model from the start, this means we would not trust the measurements as the estimator would assume we already have perfect model, witch we don't
+P_0 = [
+    0.001, 0.001, 0.001, # Uncertainty: [vx, vy, vz]
+    0.001, 0.001, 0.001, # Uncertainty: [wx, wy, wz]
+    0.001, 0.001, 0.001, # Uncertainty: [x, y, z]
+    0.001, 0.001, 0.001, # Uncertainty: [roll, pitch, yaw]
+]
+# ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
+Q = [
+    1.000, 1.000, 1.000, # Model trust in: [vx, vy, vz]
+    1.000, 1.000, 1.000, # Model trust in: [wx, wy, wz]
+    1.000, 1.000, 1.000, # Model trust in: [x, y, z]
+    1.000, 1.000, 1.000, # Model trust in: [roll, pitch, yaw]
+]
+# ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix
+R_gnss = [
+    0.001, 0.001, 0.001, # Measurement trust in: antenna1 [x, y, z]
+    0.001, 0.001, 0.001, # Measurement trust in: antenna2 [x, y, z]
+    0.001, 0.001, 0.001, # Measurement trust in: velocity [vx, vy, vz]
+]
 
 

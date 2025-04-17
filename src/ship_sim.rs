@@ -3,7 +3,7 @@ use ship_sim_lib::models::ship;
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::simulation::solver;
 use ship_sim_lib::comm::udp_utils;
-use ship_sim_lib::comm::udp_topics::{self, TOPICS, Vector12};
+use ship_sim_lib::comm::udp_topics::{TOPICS, Vector12};
 
 // Library for data formatting
 use serde::Deserialize;
@@ -24,17 +24,20 @@ use std::sync::{Arc, RwLock};
 // Config data structure ----------
 #[derive(Deserialize)]
 struct ShipConfig {
+    simulation_frequency: f32,
     mass: f32,
     dimensions: [f32; 2],
     velocity_linear_max: f32,
     velocity_angular_max: f32,
-    simulation_frequency: f32,
+    x_0: [f32; 12],
 }
 
 #[derive(Deserialize)]
 struct Config {
     ship: ShipConfig,
 }
+
+
 
 // Our non linear ODE ----------
 // x_dot = f(x, u, w)
@@ -155,7 +158,7 @@ fn main() {
             // Once received format to correct datatype
             let msg = udp_utils::subscribe(TOPICS::forces_thrusters::PORT).expect("Failed to get forces data");
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let forces: TOPICS::forces_thrusters::DataType = udp_topics::decode_json(json_str);
+            let forces: TOPICS::forces_thrusters::DataType = udp_utils::decode_json(json_str);
 
             // Save thruster forces in shared resource for simulator
             let mut forces_thruster = forces_thruster_clone.write().unwrap();
@@ -172,7 +175,7 @@ fn main() {
             // Once received format to correct datatype
             let msg = udp_utils::subscribe(TOPICS::wind_speed::PORT).expect("Failed to get wind data");
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let wind: TOPICS::wind_speed::DataType = udp_topics::decode_json(json_str);
+            let wind: TOPICS::wind_speed::DataType = udp_utils::decode_json(json_str);
 
             // Save thruster forces in shared resource for simulator
             let mut wind_speed = wind_speed_clone.write().unwrap();
@@ -189,7 +192,7 @@ fn main() {
             // Once received format to correct datatype
             let msg = udp_utils::subscribe(TOPICS::current_speed::PORT).expect("Failed to get water current data");
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let current: TOPICS::current_speed::DataType = udp_topics::decode_json(json_str);
+            let current: TOPICS::current_speed::DataType = udp_utils::decode_json(json_str);
 
             // Save thruster forces in shared resource for simulator
             let mut current_speed = current_speed_clone.write().unwrap();
@@ -204,12 +207,7 @@ fn main() {
     let current_speed_clone = current_speed.clone();
     thread::spawn(move || {
         // Initialize system ----------
-        let mut x: TOPICS::x::DataType = Vector12::<f32>::from_row_slice(&[
-            0.0, 0.0, 0.0, // [vx, vy, vz]
-            0.0, 0.0, 0.0, // [angular velocity in roll, pitch, yaw]
-            0.0, 0.0, 0.0, // [x, y, z]
-            0.0, 0.0, 0.0, // [roll, pitch, yaw]
-        ]);
+        let mut x: TOPICS::x::DataType = TOPICS::x::DataType::from_row_slice(&config.ship.x_0);
         let ode: ODE = ODE::new(
             x, 
             config.ship.mass,
@@ -260,11 +258,11 @@ fn main() {
 
             // Publish simulated data ----------
             // x
-            let x_json = udp_topics::encode_json(&x);
+            let x_json = udp_utils::encode_json(&x);
             udp_utils::publish(TOPICS::x::PORT, x_json.as_bytes()).expect("Failed to send x data");
 
             // dx
-            let dx_json = udp_topics::encode_json(&dx);
+            let dx_json = udp_utils::encode_json(&dx);
             udp_utils::publish(TOPICS::dx::PORT, dx_json.as_bytes()).expect("Failed to send dx data");
 
             // Speed
@@ -278,7 +276,7 @@ fn main() {
             speed[0] = (-1.0) * v_lin_b[0]; // heading speed [m/s]
             speed[1] = v_ang_b[2] * (180.0/PI); // yaw speed [°/s]
 
-            let speed_json = udp_topics::encode_json(&speed);
+            let speed_json = udp_utils::encode_json(&speed);
             udp_utils::publish(TOPICS::speed::PORT, speed_json.as_bytes()).expect("Failed to send speed data");
 
             // Precise way to calculate interval

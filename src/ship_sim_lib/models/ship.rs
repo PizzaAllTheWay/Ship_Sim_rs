@@ -4,6 +4,8 @@ use nalgebra::{Vector3, Matrix3};
 // Library for constants
 use std::f32::consts::PI;
 
+
+
 #[allow(non_snake_case)]
 pub struct ShipDynamics {
     pub m: f32,                // mass of the boat [kg]
@@ -51,8 +53,8 @@ impl ShipDynamics {
             m,
             dimensions,
             I_inv,
-            v_lin_max: velocity_lin_max, // ! PASS DOWN SPEED
-            v_ang_max: velocity_ang_max, // ! PASS DOWN SPEED
+            v_lin_max: velocity_lin_max,
+            v_ang_max: velocity_ang_max,
         }
     }
 
@@ -99,20 +101,16 @@ impl ShipDynamics {
         pos_cg_w: Vector3<f32>,
     ) -> (Vector3<f32>, Vector3<f32>) {
         // Dampening ----------
-        // Add a small dampening, helps get rid of oscitation and enhances numerical stability 
-        let d_lin: f32 = 0.085;
+        // Add a small dampening, helps get rid of oscitation and enhances numerical stability
         let d_lin_matrix = Matrix3::new(
-            0.085,  0.0,  0.0,
-              0.0,  0.2,  0.0,
-              0.0,  0.0,  0.9,
+            0.085,  0.0,   0.0,
+              0.0,  0.4,   0.0,
+              0.0,  0.0,  0.95,
         );
         let d_ang: f32 = 200000.0;
         
-        let mut force_dampening = (-d_lin_matrix) * v_lin;
+        let force_dampening = (-d_lin_matrix) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
-
-        // Apply extra dampening for the sides
-        force_dampening[1] += (-d_lin) * v_lin[1];
 
         // Calculate water drag forces ----------
         // Constants

@@ -5,7 +5,7 @@ use egui_plot::{Plot, PlotPoints, Line};
 use std::sync::{Arc, RwLock};
 
 // Libraries for maths
-use nalgebra::Vector3;
+use nalgebra::{Vector3, Vector6};
 
 
 
@@ -16,8 +16,8 @@ use nalgebra::Vector3;
 /// - keyboard_state: Boolean state of W, A, S, D keys
 #[derive(Clone, Default)]
 pub struct SharedState {
-    pub ship_pos: Arc<RwLock<[f32; 2]>>, // Ship position [x, y]
-    pub ship_angle: Arc<RwLock<f32>>, // Ship orientation in radians
+    pub ship_pos: Arc<RwLock<Vector6<f32>>>, // linear and angular position in world frame 6DOF
+
     pub ship_speed: Arc<RwLock<[f32; 2]>>, // Heading speed and yaw speed [m/s, °/s]
 
     pub key_state_w: Arc<RwLock<bool>>, // WASD state: [W, A, S, D]
@@ -47,6 +47,9 @@ pub struct SharedState {
     pub imu_accel: Arc<RwLock<Vec<Vector3<f32>>>>, // Linear acceleration (Body Frame): [x, y, z]
     pub imu_gyro: Arc<RwLock<Vec<Vector3<f32>>>>, // Angular velocity gyro (Body Frame): [roll, pitch, yaw]
     pub imu_mag: Arc<RwLock<Vec<f32>>>, // Angle magnetic compass (World Frame): [yaw]
+
+    pub show_kf_estimate: Arc<RwLock<bool>>,
+    pub kf_estimate: Arc<RwLock<Vector6<f32>>>, // linear and angular position in world frame 6DOF
 }
 
 
@@ -59,11 +62,13 @@ pub struct SharedState {
 pub fn draw_scene(
     ui: &mut Ui,
 
-    pos: [f32; 2],
-    angle: f32,
+    pos: Vector6<f32>,
 
-    cam_offset: [f32; 2],
+    camera_offset: [f32; 2],
     zoom: f32,
+
+    show_kf_estimate: bool,
+    kf_estimate: Vector6<f32>,
 
     show_external_forces: bool,
     wind_speed_vector: Vector3<f32>,
@@ -75,6 +80,7 @@ pub fn draw_scene(
     gnss_antenna1_history: &[Vector3<f32>],
     gnss_antenna2_history: &[Vector3<f32>],
 ) {
+    // ===== Prepare 2D graph =====
     // Allocate full window canvas for drawing
     let size = ui.available_size();
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -84,21 +90,28 @@ pub fn draw_scene(
     // Convert world coordinates to screen coordinates
     let to_screen = |world: [f32; 2]| -> Pos2 {
         Pos2::new(
-            origin.x + (world[0] - cam_offset[0]) * zoom,
-            origin.y + (world[1] - cam_offset[1]) * zoom,
+            origin.x + (world[0] - camera_offset[0]) * zoom,
+            origin.y + (world[1] - camera_offset[1]) * zoom,
         )
     };
 
-    // === Draw grid background ===
+    // Configure ship shape
+    let ship_shape = [
+        Vec2::new(-20.0, 0.0), // tip
+        Vec2::new(10.0, -10.0), // left base
+        Vec2::new(10.0, 10.0),  // right base
+    ];
+
+    // ===== Draw grid background =====
     let base_spacing = 50.0; // world unit spacing
     let spacing = (base_spacing / zoom).clamp(1.0, 1000.0); // adjust spacing by zoom level
     let grid_color = Color32::DARK_GRAY; // line color
 
     // Compute visible grid bounds in world units
-    let grid_min_x = cam_offset[0] - size.x / zoom;
-    let grid_max_x = cam_offset[0] + size.x / zoom;
-    let grid_min_y = cam_offset[1] - size.y / zoom;
-    let grid_max_y = cam_offset[1] + size.y / zoom;
+    let grid_min_x = camera_offset[0] - size.x / zoom;
+    let grid_max_x = camera_offset[0] + size.x / zoom;
+    let grid_min_y = camera_offset[1] - size.y / zoom;
+    let grid_max_y = camera_offset[1] + size.y / zoom;
 
     // Draw vertical grid lines
     let mut x = (grid_min_x / spacing).floor() * spacing;
@@ -118,14 +131,9 @@ pub fn draw_scene(
         y += spacing;
     }
 
-    // === Draw ship shape ===
-    let ship_shape = [
-        Vec2::new(-20.0, 0.0), // tip
-        Vec2::new(10.0, -10.0), // left base
-        Vec2::new(10.0, 10.0),  // right base
-    ];
-
+    // ===== Draw ship shape =====
     // Transform ship shape by rotation and translation
+    let angle = pos[5]; // Yaw angle
     let transformed: Vec<Pos2> = ship_shape
         .iter()
         .map(|v| {
@@ -139,7 +147,32 @@ pub fn draw_scene(
     painter.add(Shape::convex_polygon(transformed.clone(), Color32::RED, Stroke::NONE));
     painter.add(Shape::closed_line(transformed, Stroke::new(2.0, Color32::BLACK)));
 
-    // Draw GNSS Antenna sensor points
+    // ===== Draw Kalman Filter Estimate =====
+    if show_kf_estimate {
+        // Translucent boat shape using KF estimate
+        let kf_angle = kf_estimate[5];
+        let transformed_kf: Vec<Pos2> = ship_shape
+            .iter()
+            .map(|v| {
+                let x = v.x * kf_angle.cos() - v.y * kf_angle.sin();
+                let y = v.x * kf_angle.sin() + v.y * kf_angle.cos();
+                to_screen([kf_estimate[0] + x, kf_estimate[1] + y])
+            })
+            .collect();
+    
+        // Draw translucent blue boat
+        painter.add(Shape::convex_polygon(
+            transformed_kf.clone(),
+            Color32::from_rgba_unmultiplied(0, 100, 255, 100), // translucent blue fill
+            Stroke::NONE,
+        ));
+        painter.add(Shape::closed_line(
+            transformed_kf,
+            Stroke::new(2.0, Color32::from_rgb(0, 100, 255)), // solid outline
+        ));
+    }
+
+    // ===== Draw GNSS Antenna sensor points =====
     if show_gnss_data {
         for point in gnss_antenna1_history {
             let screen = to_screen([point.x, point.y]);
@@ -152,12 +185,12 @@ pub fn draw_scene(
         }  
     }
     
-    // Draw external forces speed vectors
+    // ===== Draw external forces speed vectors =====
     if show_external_forces {
         let center_screen = rect.center();
         let origin_world = [
-            (center_screen.x - origin.x) / zoom + cam_offset[0],
-            (center_screen.y - origin.y) / zoom + cam_offset[1],
+            (center_screen.x - origin.x) / zoom + camera_offset[0],
+            (center_screen.y - origin.y) / zoom + camera_offset[1],
         ];
         let origin_screen = to_screen(origin_world);
 
@@ -244,12 +277,12 @@ pub fn draw_scene(
         painter.add(Shape::convex_polygon(vec![p1, p2, p3], Color32::BLUE, Stroke::NONE));
     }
 
-    // === Draw mouse crosshair and label ===
+    // ===== Draw mouse crosshair and label =====
     let response = ui.interact(rect, ui.id().with("canvas"), egui::Sense::hover());
     if let Some(mouse_pos) = response.hover_pos() {
         let world_mouse = [
-            (mouse_pos.x - origin.x) / zoom + cam_offset[0],
-            (mouse_pos.y - origin.y) / zoom + cam_offset[1],
+            (mouse_pos.x - origin.x) / zoom + camera_offset[0],
+            (mouse_pos.y - origin.y) / zoom + camera_offset[1],
         ];
 
         // Draw crosshair lines
@@ -321,15 +354,14 @@ impl eframe::App for SimulatorWindow {
         egui::TopBottomPanel::top("top_controls").resizable(false).show(ctx, |ui| {
             // Read shared state
             let pos = *self.state.ship_pos.read().unwrap();
-            let angle = *self.state.ship_angle.read().unwrap();
 
             // Show debug info in panel ----------
-            let ship_speed  = self.state.ship_speed.write().unwrap();
+            let ship_speed  = *self.state.ship_speed.write().unwrap();
 
             ui.horizontal(|ui| {
                 ui.label(format!("Ship X: {:.1} m", pos[0]));
                 ui.label(format!("Ship Y: {:.1} m", -pos[1])); // Because of Right Hand NED frame must flip for screen output
-                ui.label(format!("Ship θ: {:.2}°", angle.to_degrees()));
+                ui.label(format!("Ship θ: {:.2}°", pos[5].to_degrees()));
                 ui.label(format!("Ship v: {:.2} m/s", ship_speed[0]));
                 ui.label(format!("Ship ω: {:.3}°/s", ship_speed[1]));
                 ui.label(format!("Zoom: {:.2}x", self.zoom));
@@ -456,6 +488,17 @@ impl eframe::App for SimulatorWindow {
                         ui.add(egui::Slider::new(&mut *imu_graphs_period, 0_u32..=60000_u32).text("samples"));
                     });
 
+                });
+
+                // === Estimator Column ===
+                ui.vertical(|ui| {
+                    // Header here because eframe does NOT support mor custom widgets
+                    ui.heading("Estimators");
+                    ui.label("");
+
+                    // IMU Interface
+                    let mut show_kf_estimate = self.state.show_kf_estimate.write().unwrap();
+                    ui.checkbox(&mut *show_kf_estimate, "Show KF Estimate");
                 });
             });
 
@@ -614,7 +657,9 @@ impl eframe::App for SimulatorWindow {
             ui.separator(); 
 
             let pos = *self.state.ship_pos.read().unwrap();
-            let angle = *self.state.ship_angle.read().unwrap();
+
+            let show_kf_estimate = *self.state.show_kf_estimate.read().unwrap();
+            let kf_estimate = *self.state.kf_estimate.read().unwrap();
 
             let show_external_forces = *self.state.show_external_forces.read().unwrap();
             let wind_noise = *self.state.wind_noise.read().unwrap();
@@ -627,9 +672,10 @@ impl eframe::App for SimulatorWindow {
             draw_scene(
                 ui,
                 pos,
-                angle,
                 self.camera_offset,
                 self.zoom,
+                show_kf_estimate,
+                kf_estimate,
                 show_external_forces,
                 wind_speed_vector,
                 wind_noise,

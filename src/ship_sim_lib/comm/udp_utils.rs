@@ -1,6 +1,7 @@
 use socket2::{Socket, Domain, Type, Protocol};
 use std::net::{UdpSocket, SocketAddr, Ipv4Addr};
 use std::io;
+use serde::{Deserialize, Serialize};
 
 /// Multicast group address (must be in 224.0.0.0 to 239.255.255.255)
 const MULTICAST_ADDR: &str = "239.0.0.1";
@@ -34,4 +35,16 @@ pub fn subscribe(port: u16) -> io::Result<Vec<u8>> {
     let mut buf = [0u8; 1024];
     let (amt, _src) = std_socket.recv_from(&mut buf)?;
     Ok(buf[..amt].to_vec())
+}
+
+// Encode/Decode incoming JSON
+pub fn encode_json<T: Serialize>(data: &T) -> String {
+    serde_json::to_string(data).expect("Failed to serialize")
+}
+
+pub fn decode_json<'a, T>(json: &'a str) -> T
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_str(json).expect("Failed to deserialize JSON into struct")
 }

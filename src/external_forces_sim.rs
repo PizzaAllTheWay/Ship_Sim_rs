@@ -1,6 +1,6 @@
 // Custom libraries
 use ship_sim_lib::comm::udp_utils;
-use ship_sim_lib::comm::udp_topics::{self, TOPICS};
+use ship_sim_lib::comm::udp_topics::TOPICS;
 use ship_sim_lib::models::wind;
 use ship_sim_lib::models::current;
 
@@ -18,20 +18,15 @@ use std::sync::{Arc, RwLock};
 
 // Config data structure ----------
 #[derive(Deserialize)]
-struct ExternalForceConfig {
+struct ExternalForcesConfig {
     simulation_frequency: f32,
-}
-
-#[derive(Deserialize)]
-struct InterfaceConfig {
     wind_speed_max: f32,
     current_speed_max: f32,
 }
 
 #[derive(Deserialize)]
 struct Config {
-    external_force: ExternalForceConfig,
-    interface: InterfaceConfig,
+    external_forces: ExternalForcesConfig,
 }
 
 
@@ -54,7 +49,7 @@ fn main() {
             // Wait for control data from GUI
             let msg = udp_utils::subscribe(TOPICS::wind_parameters::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let wind: TOPICS::wind_parameters::DataType = udp_topics::decode_json(json_str);
+            let wind: TOPICS::wind_parameters::DataType = udp_utils::decode_json(json_str);
 
             // Save control data
             let mut wind_parameters = wind_parameters_clone.write().unwrap();
@@ -70,7 +65,7 @@ fn main() {
             // Wait for control data from GUI
             let msg = udp_utils::subscribe(TOPICS::current_parameters::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let current: TOPICS::current_parameters::DataType = udp_topics::decode_json(json_str);
+            let current: TOPICS::current_parameters::DataType = udp_utils::decode_json(json_str);
 
             // Save control data
             let mut current_parameters = current_parameters_clone.write().unwrap();
@@ -89,7 +84,7 @@ fn main() {
             angle_noise: 0.0,
         };     
 
-        let dt = 1.0/config.external_force.simulation_frequency; // [s]
+        let dt = 1.0/config.external_forces.simulation_frequency; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64);
 
         loop {
@@ -106,7 +101,7 @@ fn main() {
                 speed,
                 angle_deg,
                 noise,
-                config.interface.wind_speed_max,
+                config.external_forces.wind_speed_max,
                 &mut wind_state,
             );
 
@@ -117,7 +112,7 @@ fn main() {
             wind_speed.z = 0.0;
 
             // Packet to JSON
-            let wind_speed_json = udp_topics::encode_json(&wind_speed);
+            let wind_speed_json = udp_utils::encode_json(&wind_speed);
 
             // Publish data
             udp_utils::publish(TOPICS::wind_speed::PORT, wind_speed_json.as_bytes()).expect("Failed to publish wind data");
@@ -142,7 +137,7 @@ fn main() {
             angle_noise: 0.0,
         };
 
-        let dt = 1.0/config.external_force.simulation_frequency; // [s]
+        let dt = 1.0/config.external_forces.simulation_frequency; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64);
 
         loop {
@@ -159,7 +154,7 @@ fn main() {
                 speed,
                 angle_deg,
                 noise,
-                config.interface.current_speed_max,
+                config.external_forces.current_speed_max,
                 &mut current_state,
             );
 
@@ -170,7 +165,7 @@ fn main() {
             current_speed.z = 0.0;
 
             // Packet to JSON
-            let current_speed_json = udp_topics::encode_json(&current_speed);
+            let current_speed_json = udp_utils::encode_json(&current_speed);
 
             // Publish data
             udp_utils::publish(TOPICS::current_speed::PORT, current_speed_json.as_bytes()).expect("Failed to publish water current data");

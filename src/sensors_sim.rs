@@ -1,6 +1,6 @@
 // Custom libraries
 use ship_sim_lib::comm::udp_utils;
-use ship_sim_lib::comm::udp_topics::{self, TOPICS};
+use ship_sim_lib::comm::udp_topics::TOPICS;
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::models::gnss;
 use ship_sim_lib::models::imu;
@@ -25,7 +25,7 @@ use rand::Rng;
 
 // Config data structure ----------
 #[derive(Deserialize)]
-struct SensorConfig {
+struct SensorsConfig {
     gnss_pub_frequency: f32,
     gnss_pub_variance: f32,
     gnss_antenna1_placement: [f32; 3],
@@ -53,7 +53,7 @@ struct SensorConfig {
 
 #[derive(Deserialize)]
 struct Config {
-    sensor: SensorConfig,
+    sensors: SensorsConfig,
 }
 
 
@@ -76,7 +76,7 @@ fn main() {
             // Wait for state data from GUI
             let msg = udp_utils::subscribe(TOPICS::x::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let states: TOPICS::x::DataType = udp_topics::decode_json(json_str);
+            let states: TOPICS::x::DataType = udp_utils::decode_json(json_str);
 
             // Save state data
             let mut x = x_clone.write().unwrap();
@@ -92,7 +92,7 @@ fn main() {
             // Wait for state data from GUI
             let msg = udp_utils::subscribe(TOPICS::dx::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let states: TOPICS::dx::DataType = udp_topics::decode_json(json_str);
+            let states: TOPICS::dx::DataType = udp_utils::decode_json(json_str);
 
             // Save state data
             let mut dx = dx_clone.write().unwrap();
@@ -104,14 +104,14 @@ fn main() {
     // SEND - GNSS Data (START) ==================================================
     let x_clone = x.clone();
     thread::spawn(move || {
-        let dt = 1.0/config.sensor.gnss_pub_frequency; // [s]
+        let dt = 1.0/config.sensors.gnss_pub_frequency; // [s]
         
         loop {
             // Read the ground truth and wait a bit before publishing with a bit of a random time delay
             // This simulates the random process of sending and receiving GNSS data with a time lag to make it more realistic
             let x_w = *x_clone.read().unwrap();
 
-            let variance = config.sensor.gnss_pub_variance;
+            let variance = config.sensors.gnss_pub_variance;
             let mut rng = rand::thread_rng();
             let jitter_factor: f32 = rng.gen_range(1.0 - variance..=1.0 + variance);
             let jittered_dt = dt * jitter_factor;
@@ -131,18 +131,18 @@ fn main() {
                 r_lin_b, 
                 v_lin_w,
 
-                Vector3::from(config.sensor.gnss_antenna1_placement),
-                Vector3::from(config.sensor.gnss_antenna2_placement),
+                Vector3::from(config.sensors.gnss_antenna1_placement),
+                Vector3::from(config.sensors.gnss_antenna2_placement),
 
-                config.sensor.gnss_position_noise_horizontal, 
-                config.sensor.gnss_position_accuracy_horizontal,
-                config.sensor.gnss_position_noise_vertical, 
-                config.sensor.gnss_position_accuracy_vertical,
+                config.sensors.gnss_position_noise_horizontal, 
+                config.sensors.gnss_position_accuracy_horizontal,
+                config.sensors.gnss_position_noise_vertical, 
+                config.sensors.gnss_position_accuracy_vertical,
 
-                config.sensor.gnss_velocity_noise_horizontal, 
-                config.sensor.gnss_velocity_accuracy_horizontal,
-                config.sensor.gnss_velocity_noise_vertical, 
-                config.sensor.gnss_velocity_accuracy_vertical,
+                config.sensors.gnss_velocity_noise_horizontal, 
+                config.sensors.gnss_velocity_accuracy_horizontal,
+                config.sensors.gnss_velocity_noise_vertical, 
+                config.sensors.gnss_velocity_accuracy_vertical,
             );
 
             // Kinematics
@@ -161,7 +161,7 @@ fn main() {
             gnss[7] = gnss_speed_w[1];
             gnss[8] = gnss_speed_w[2];
 
-            let gnss_json = udp_topics::encode_json(&gnss);
+            let gnss_json = udp_utils::encode_json(&gnss);
 
             udp_utils::publish(TOPICS::gnss::PORT, gnss_json.as_bytes()).expect("Failed to publish antenna1 data");
         }
@@ -172,7 +172,7 @@ fn main() {
     let x_clone = x.clone();
     let dx_clone = dx.clone();
     thread::spawn(move || {
-        let dt = 1.0/config.sensor.imu_pub_frequency; // [s]
+        let dt = 1.0/config.sensors.imu_pub_frequency; // [s]
         
         loop {
             // Read the ground truth and wait a bit before publishing
@@ -192,8 +192,8 @@ fn main() {
             let a_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * a_lin_w;
             let v_ang_b: Vector3<f32> = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
 
-            let imu_pos_b = Vector3::from_column_slice(&config.sensor.imu_placement[0..3]);
-            let imu_rot_b = Vector3::from_column_slice(&config.sensor.imu_placement[3..6]);
+            let imu_pos_b = Vector3::from_column_slice(&config.sensors.imu_placement[0..3]);
+            let imu_rot_b = Vector3::from_column_slice(&config.sensors.imu_placement[3..6]);
 
             let r_body_to_imu = kinematics::r_body_to_object(imu_rot_b);
             let r_world_to_body = kinematics::r_world_to_body(r_ang_w); // ship's current rotation
@@ -207,16 +207,16 @@ fn main() {
                 r_body_to_imu,
                 r_world_to_body,
 
-                config.sensor.imu_noise,
-                config.sensor.imu_accel_noise,
-                config.sensor.imu_gyro_noise,
-                config.sensor.imu_mag_noise,
-                config.sensor.imu_pub_frequency,
+                config.sensors.imu_noise,
+                config.sensors.imu_accel_noise,
+                config.sensors.imu_gyro_noise,
+                config.sensors.imu_mag_noise,
+                config.sensors.imu_pub_frequency,
 
-                config.sensor.imu_resolution,
-                config.sensor.imu_accel_fsr,
-                config.sensor.imu_gyro_fsr,
-                config.sensor.imu_mag_fsr,
+                config.sensors.imu_resolution,
+                config.sensors.imu_accel_fsr,
+                config.sensors.imu_gyro_fsr,
+                config.sensors.imu_mag_fsr,
             );
 
             // Publish data
@@ -225,7 +225,7 @@ fn main() {
             imu.fixed_rows_mut::<3>(3).copy_from(&imu_gyro);  // [gx, gy, gz]
             imu[6] = imu_mag; // Magnetic yaw (ψ)
 
-            let imu_json = udp_topics::encode_json(&imu);
+            let imu_json = udp_utils::encode_json(&imu);
 
             udp_utils::publish(TOPICS::imu::PORT, imu_json.as_bytes()).expect("Failed to publish imu data");
         }

@@ -12,7 +12,7 @@ for arg in "$@"; do
 done
 
 # List of binary names (conditionally include logger)
-BINS=("ship_sim" "external_force_sim" "sensor_sim" "sim_interface")
+BINS=("ship_sim" "external_forces_sim" "sensors_sim" "state_estimators" "sim_interface")
 if $LOG_ENABLED; then
     echo "Running logger..."
     cargo run --bin "logger" &

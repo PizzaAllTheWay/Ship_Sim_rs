@@ -9,6 +9,7 @@ dependencies = [
  "chrono",
  "eframe",
  "egui_plot",
+ "flate2",
  "nalgebra",
  "once_cell",
  "rand",

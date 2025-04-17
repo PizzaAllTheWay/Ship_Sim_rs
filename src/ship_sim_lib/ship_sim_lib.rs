@@ -1,10 +1,12 @@
-pub mod ui {
-    pub mod gui;
-}
-
 pub mod comm {
     pub mod udp_topics;
     pub mod udp_utils;
+}
+
+pub mod estimators {
+    pub mod estimators_utils;
+    pub mod kf;
+    pub mod ship_approx;
 }
 
 pub mod models {
@@ -18,6 +20,10 @@ pub mod models {
 pub mod simulation {
     pub mod kinematics;
     pub mod solver;
+}
+
+pub mod ui {
+    pub mod gui;
 }
 
 

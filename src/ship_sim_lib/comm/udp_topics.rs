@@ -1,6 +1,7 @@
 // src/shared_data/mod.rs
-use nalgebra::{SVector, Vector2, Vector3, Vector6};
+use nalgebra::{Scalar, Vector2, Vector3, Vector6, SVector, SMatrix};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 // =====================
 // Custom Types
@@ -8,6 +9,30 @@ use serde::{Deserialize, Serialize};
 pub type Vector7<T> = SVector<T, 7>;
 pub type Vector9<T> = SVector<T, 9>;
 pub type Vector12<T> = SVector<T, 12>;
+pub type Matrix12x12<T> = SMatrix::<T, 12, 12>;
+pub type Matrix9x9<T> = SMatrix::<T, 9, 9>;
+pub type Matrix12x9<T> = SMatrix::<T, 12, 9>;
+
+// =====================
+// Custom Data Structures
+// =====================
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: Scalar + Copy + Clone + Debug + Serialize + for<'a> Deserialize<'a>")]
+pub struct KF<T>
+where
+    T: Scalar + Copy + Clone + Debug + Serialize + for<'a> Deserialize<'a>,
+{
+    pub x_est: Vector12<T>, // Estimate: [(velocity linear), (velocity angular), (position linear), (position angular)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub P: Option<Matrix12x12<T>>, // Estimate Uncertainty: Covariance between estimates
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y_gnss: Option<Vector9<T>>, // GNSS Measurement: [(antenna1 position), (antenna2 position), (velocity)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub S_gnss: Option<Matrix9x9<T>>, // GNSS Measurement Uncertainty: Covariance between measurements and estimates
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub K_gnss: Option<Matrix12x9<T>>, // GNSS Kalman gain
+}
 
 // =====================
 // Topics and Port Mapping
@@ -126,15 +151,15 @@ pub mod TOPICS {
         pub const PORT: u16 = 5581;
         pub type DataType = Vector7<f32>;
     }
+
+    // Data Type [KF<f32>]:
+    // Estimate: [(velocity linear), (velocity angular), (position linear), (position angular)]
+    // Estimate Uncertainty: [(velocity linear), (velocity angular), (position linear), (position angular)]
+    pub mod kf {
+        use super::*;
+        use Vector12;
+        pub const PORT: u16 = 5590;
+        pub type DataType = Vector12<f32>;
+    }
 }
 
-// =====================
-// Utilities
-// =====================
-pub fn encode_json<T: Serialize>(data: &T) -> String {
-    serde_json::to_string(data).expect("Failed to serialize")
-}
-
-pub fn decode_json<'a, T: Deserialize<'a>>(json: &'a str) -> T {
-    serde_json::from_str(json).expect("Failed to deserialize")
-}

@@ -1,5 +1,5 @@
 use ship_sim_lib::comm::udp_utils;
-use ship_sim_lib::comm::udp_topics::{self, TOPICS};
+use ship_sim_lib::comm::udp_topics::TOPICS;
 
 use std::{
     fs::{File, OpenOptions},
@@ -43,7 +43,7 @@ fn main() {
                 loop {
                     let msg = udp_utils::subscribe(TOPICS::$topic::PORT).unwrap();
                     let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-                    let data: TOPICS::$topic::DataType = udp_topics::decode_json(json_str);
+                    let data: TOPICS::$topic::DataType = udp_utils::decode_json(json_str);
     
                     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
                     writeln!(
@@ -57,7 +57,7 @@ fn main() {
                 }
             }));
         };
-    }    
+    }
 
     spawn_logger!(forces_thrusters,    "forces_thrusters.csv");
     spawn_logger!(wind_parameters,     "wind.csv");
@@ -67,7 +67,7 @@ fn main() {
     spawn_logger!(speed,               "speed.csv");
     spawn_logger!(gnss,                "gnss.csv");
     spawn_logger!(imu,                 "imu.csv");
-    
+    spawn_logger!(kf,                  "kf.csv");
 
     for h in handles {
         h.join().unwrap();

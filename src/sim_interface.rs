@@ -1,7 +1,7 @@
 // Custom libraries
 use ship_sim_lib::ui::gui;
 use ship_sim_lib::comm::udp_utils;
-use ship_sim_lib::comm::udp_topics::{self, TOPICS};
+use ship_sim_lib::comm::udp_topics::TOPICS;
 
 // Library for data formatting
 use serde::Deserialize;
@@ -18,6 +18,10 @@ use std::time::{Duration, Instant};
 #[derive(Deserialize)]
 struct InterfaceConfig {
     fps: f32,
+}
+
+#[derive(Deserialize)]
+struct ExternalForcesConfig {
     wind_speed_max: f32,
     current_speed_max: f32,
 }
@@ -25,6 +29,7 @@ struct InterfaceConfig {
 #[derive(Deserialize)]
 struct Config {
     interface: InterfaceConfig,
+    external_forces: ExternalForcesConfig,
 }
 
 
@@ -46,16 +51,13 @@ fn main() {
             // Wait for states
             let msg = udp_utils::subscribe(TOPICS::x::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let x: TOPICS::x::DataType = udp_topics::decode_json(json_str);
+            let x: TOPICS::x::DataType = udp_utils::decode_json(json_str);
 
             // Update GUI with new states
-            if let Ok(mut pos) = gui_state_clone.ship_pos.write() {
-                pos[0] = x[6]; // x
-                pos[1] = x[7]; // y
-            }
-            if let Ok(mut ang) = gui_state_clone.ship_angle.write() {
-                *ang = x[11]; // yaw
-            }
+            {
+                let mut ship_pos = gui_state_clone.ship_pos.write().unwrap();
+                *ship_pos = x.fixed_rows::<6>(6).into();
+            }            
         }
     });
     // GET - States (STOP) ==================================================
@@ -67,7 +69,7 @@ fn main() {
             // Wait for states
             let msg = udp_utils::subscribe(TOPICS::speed::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let speed: TOPICS::speed::DataType = udp_topics::decode_json(json_str);
+            let speed: TOPICS::speed::DataType = udp_utils::decode_json(json_str);
 
             // Update GUI with new speed telemetry data
             if let Ok(mut speed_gui) = gui_state_clone.ship_speed.write() {                
@@ -85,7 +87,7 @@ fn main() {
             // Wait for sensor data
             let msg = udp_utils::subscribe(TOPICS::gnss::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let gnss: TOPICS::gnss::DataType = udp_topics::decode_json(json_str);
+            let gnss: TOPICS::gnss::DataType = udp_utils::decode_json(json_str);
 
             // Parse data
             let antenna1 = gnss.fixed_rows::<3>(0).into();
@@ -118,7 +120,7 @@ fn main() {
             // Wait for sensor data
             let msg = udp_utils::subscribe(TOPICS::imu::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let imu: TOPICS::imu::DataType = udp_topics::decode_json(json_str);
+            let imu: TOPICS::imu::DataType = udp_utils::decode_json(json_str);
 
             // Split the Vector7 into individual parts
             let accel = imu.fixed_rows::<3>(0).into(); // [ax, ay, az]
@@ -141,6 +143,25 @@ fn main() {
         }
     });
     // GET - IMU (STOP) ==================================================
+
+    // GET - Kalman Filter Estimate (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for states
+            let msg = udp_utils::subscribe(TOPICS::kf::PORT).unwrap();
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let kf: TOPICS::kf::DataType = udp_utils::decode_json(json_str);
+            let x_est = kf;
+
+            // Update GUI with new states
+            {
+                let mut kf_estimate = gui_state_clone.kf_estimate.write().unwrap();
+                *kf_estimate = x_est.fixed_rows::<6>(6).into();
+            } 
+        }
+    });
+    // GET - Kalman Filter Estimate (STOP) ==================================================
 
 
 
@@ -181,7 +202,7 @@ fn main() {
             }
 
             // Packet to JSON
-            let forces_json = udp_topics::encode_json(&forces);
+            let forces_json = udp_utils::encode_json(&forces);
 
             // Publish data
             udp_utils::publish(TOPICS::forces_thrusters::PORT, forces_json.as_bytes()).expect("Failed to publish forces data");
@@ -217,7 +238,7 @@ fn main() {
             );
 
             // Packet to JSON
-            let wind_json = udp_topics::encode_json(&wind);
+            let wind_json = udp_utils::encode_json(&wind);
 
             // Publish data
             udp_utils::publish(TOPICS::wind_parameters::PORT, wind_json.as_bytes()).expect("Failed to publish wind parameters");
@@ -253,7 +274,7 @@ fn main() {
             );
 
             // Packet to JSON
-            let current_json = udp_topics::encode_json(&current);
+            let current_json = udp_utils::encode_json(&current);
 
             // Publish data
             udp_utils::publish(TOPICS::current_parameters::PORT, current_json.as_bytes()).expect("Failed to publish water current parameters");
@@ -277,8 +298,8 @@ fn main() {
     let gui_state_clone = gui_state.clone();
     *gui_state_clone.frame_interval_ms.write().unwrap() = (1000.0/config.interface.fps) as u64; // FPS to ms
     *gui_state_clone.show_external_forces.write().unwrap() = false; // Start GUI with external forces velocity vectors invisible
-    *gui_state_clone.wind_speed_max.write().unwrap() = config.interface.wind_speed_max;
-    *gui_state_clone.current_speed_max.write().unwrap() = config.interface.current_speed_max;
+    *gui_state_clone.wind_speed_max.write().unwrap() = config.external_forces.wind_speed_max;
+    *gui_state_clone.current_speed_max.write().unwrap() = config.external_forces.current_speed_max;
     *gui_state_clone.show_gnss_data.write().unwrap() = false; // Start GUI with gnss data invisible
     *gui_state_clone.show_imu_graphs.write().unwrap() = false; // Start GUI with imu data invisible
     *gui_state_clone.imu_graphs_period.write().unwrap() = 6000; // Start by showing only the latest specified amount of datapoint of the IMU sensor
