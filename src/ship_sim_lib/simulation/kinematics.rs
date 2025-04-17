@@ -74,6 +74,13 @@ pub fn linear_accel_body_to_world(
     r_body_to_world(euler_angles) * a_b
 }
 
+pub fn linear_accel_world_to_body(
+    euler_angles: Vector3<f32>,
+    a_b: Vector3<f32>,
+) -> Vector3<f32> {
+    r_world_to_body(euler_angles) * a_b
+}
+
 pub fn angular_accel_body_to_world(
     euler_angles: Vector3<f32>,
     alpha_body: Vector3<f32>, 

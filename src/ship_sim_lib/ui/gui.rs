@@ -5,7 +5,7 @@ use egui_plot::{Plot, PlotPoints, Line};
 use std::sync::{Arc, RwLock};
 
 // Libraries for maths
-use nalgebra::{Vector2, Vector3};
+use nalgebra::Vector3;
 
 
 
@@ -38,8 +38,9 @@ pub struct SharedState {
     pub current_noise: Arc<RwLock<f32>>, // [%]
 
     pub show_gnss_data: Arc<RwLock<bool>>,
-    pub gnss_antenna1_history: Arc<RwLock<Vec<Vector2<f32>>>>, // (x, y) [m]
-    pub gnss_antenna2_history: Arc<RwLock<Vec<Vector2<f32>>>>, // (x, y) [m]
+    pub gnss_antenna1_history: Arc<RwLock<Vec<Vector3<f32>>>>, // (x, y, z) [m]
+    pub gnss_antenna2_history: Arc<RwLock<Vec<Vector3<f32>>>>, // (x, y, z) [m]
+    pub gnss_velocity: Arc<RwLock<Vector3<f32>>>, // (vx, vy, vz) [m/s]
 
     pub show_imu_graphs: Arc<RwLock<bool>>,
     pub imu_graphs_period: Arc<RwLock<u32>>, // How many of the newest samples should be displayed on the screen 
@@ -71,8 +72,8 @@ pub fn draw_scene(
     current_noise: f32,
 
     show_gnss_data: bool,
-    gnss_antenna1_history: &[Vector2<f32>],
-    gnss_antenna2_history: &[Vector2<f32>],
+    gnss_antenna1_history: &[Vector3<f32>],
+    gnss_antenna2_history: &[Vector3<f32>],
 ) {
     // Allocate full window canvas for drawing
     let size = ui.available_size();
@@ -327,13 +328,13 @@ impl eframe::App for SimulatorWindow {
 
             ui.horizontal(|ui| {
                 ui.label(format!("Ship X: {:.1} m", pos[0]));
-                ui.label(format!("Ship Y: {:.1} m", -pos[1]));
+                ui.label(format!("Ship Y: {:.1} m", -pos[1])); // Because of Right Hand NED frame must flip for screen output
                 ui.label(format!("Ship θ: {:.2}°", angle.to_degrees()));
                 ui.label(format!("Ship v: {:.2} m/s", ship_speed[0]));
                 ui.label(format!("Ship ω: {:.3}°/s", ship_speed[1]));
                 ui.label(format!("Zoom: {:.2}x", self.zoom));
                 ui.label(format!("Pan X: {:.1}", self.camera_offset[0]));
-                ui.label(format!("Pan Y: {:.1}", self.camera_offset[1]));
+                ui.label(format!("Pan Y: {:.1}", -self.camera_offset[1])); // Because of Right Hand NED frame must flip for screen output
             });
 
             // Interaction interface ----------
@@ -416,9 +417,26 @@ impl eframe::App for SimulatorWindow {
                     ui.label("");
 
                     // GNSS Interface
-                    ui.label("GNSS");
-                    let mut show_gnss_data = self.state.show_gnss_data.write().unwrap();
-                    ui.checkbox(&mut *show_gnss_data, "Show GNSS Data");
+                    {
+                        ui.label("GNSS");
+                        let mut show_gnss_data = self.state.show_gnss_data.write().unwrap();
+                        ui.checkbox(&mut *show_gnss_data, "Show GNSS Data");
+                    }
+                    
+                    // Extra info on activation
+                    let show_gnss_data = *self.state.show_gnss_data.read().unwrap();
+                    if show_gnss_data {
+                        let gnss_velocity = self.state.gnss_velocity.read().unwrap();
+
+                        ui.group(|ui| {
+                            ui.label("GNSS Velocity:");
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Vx: {:.2} m/s", gnss_velocity[0]));
+                                ui.label(format!("Vy: {:.2} m/s", -gnss_velocity[1])); // Because of Right Hand NED frame must flip for screen output
+                                ui.label(format!("Vz: {:.2} m/s", -gnss_velocity[2])); // Because of Right Hand NED frame must flip for screen output
+                            });
+                        });
+                    }
                 });
 
                 // === IMU Column ===

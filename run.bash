@@ -14,7 +14,11 @@ done
 # List of binary names (conditionally include logger)
 BINS=("ship_sim" "external_force_sim" "sensor_sim" "sim_interface")
 if $LOG_ENABLED; then
-    BINS=("logger" "${BINS[@]}")
+    echo "Running logger..."
+    cargo run --bin "logger" &
+
+    echo "Waiting for logger to initialize..."
+    sleep 5
 fi
 
 # Run each binary with cargo in background

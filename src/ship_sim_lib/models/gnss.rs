@@ -15,24 +15,36 @@ use rand::Rng;
 /// A tuple with two 3D vectors: simulated positions of antenna1 and antenna2
 pub fn simulate(
     pos_gt: Vector3<f32>,
+    vel_gt: Vector3<f32>,
+
     antenna1_placement: Vector3<f32>,
     antenna2_placement: Vector3<f32>,
-    noise: f32,
-    accuracy: f32,
-) -> (Vector3<f32>, Vector3<f32>) {
+
+    position_noise_horizontal: f32, // XY Plane
+    position_accuracy_horizontal: f32, // XY Plane
+    position_noise_vertical: f32, // Z Direction (UP/DOWN)
+    position_accuracy_vertical: f32, // Z Direction (UP/DOWN)
+
+    velocity_noise_horizontal: f32, // XY Plane
+    velocity_accuracy_horizontal: f32, // XY Plane
+    velocity_noise_vertical: f32, // Z Direction (UP/DOWN)
+    velocity_accuracy_vertical: f32, // Z Direction (UP/DOWN)
+) -> (Vector3<f32>, Vector3<f32>, Vector3<f32>) {
+    // Position (START) ==================================================
     // Random number generator
     let mut rng = rand::thread_rng();
 
     // Create normal (Gaussian) distribution with 0 mean and scaled std deviation
-    let gauss = Normal::new(0.0, noise * accuracy).unwrap();
+    let gauss_xy = Normal::new(0.0, position_noise_horizontal * position_accuracy_horizontal).unwrap();
+    let gauss_z = Normal::new(0.0, position_noise_vertical * position_accuracy_vertical).unwrap();
 
     // Function to generate nonlinear distorted Gaussian noise
     let mut nonlinear_noise = || {
         // Sample 3D Gaussian noise
         let sample = Vector3::new(
-            gauss.sample(&mut rng),
-            gauss.sample(&mut rng),
-            gauss.sample(&mut rng),
+            gauss_xy.sample(&mut rng),
+            gauss_xy.sample(&mut rng),
+            gauss_z.sample(&mut rng),
         );
         let (x, y, z) = (sample.x, sample.y, sample.z);
 
@@ -87,7 +99,44 @@ pub fn simulate(
     // Final simulated antenna positions = true pos + offset + noisy distortion
     let antenna1 = pos_gt + antenna1_placement + nonlinear_noise();
     let antenna2 = pos_gt + antenna2_placement + nonlinear_noise();
+    // Position (STOP) ==================================================
 
-    // Return simulated results
-    (antenna1, antenna2)
+
+
+    // Speed (START) ==================================================
+    // Random number generator
+    let mut rng = rand::thread_rng();
+
+    // Create normal (Gaussian) distribution with 0 mean and scaled std deviation
+    let gauss_xy = Normal::new(0.0, velocity_noise_horizontal * velocity_accuracy_horizontal).unwrap();
+    let gauss_z = Normal::new(0.0, velocity_noise_vertical * velocity_accuracy_vertical).unwrap();
+
+    // Function to generate nonlinear distorted Gaussian noise
+    let mut nonlinear_noise = || {
+        // Sample 3D Gaussian noise
+        let sample = Vector3::new(
+            gauss_xy.sample(&mut rng),
+            gauss_xy.sample(&mut rng),
+            gauss_z.sample(&mut rng),
+        );
+        let (vx, vy, vz) = (sample.x, sample.y, sample.z);
+
+        // Non linear noise
+        let f = |x: f32, y: f32, z: f32| {
+            let theta = y.atan2(x) * 0.5; // reduce angle impact
+            let z_mod = (z * 0.1).cos();  // lower frequency
+            let value = theta * z_mod;
+            if value.is_finite() { value } else { 0.0 }
+        };
+
+        // Return distorted 3D noise vector
+        Vector3::new(f(vx, vy, vz), f(vx, vy, vz), f(vx, vy, vz))
+    };
+    
+    let velocity = vel_gt + nonlinear_noise();
+    // Speed (STOP) ==================================================
+
+
+    
+    return (antenna1, antenna2, velocity);
 }

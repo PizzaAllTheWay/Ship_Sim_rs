@@ -10,10 +10,19 @@ simulation_frequency = 100.00 # [Hz]
 # Assuming a good consumer grade GNSS
 gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
-antenna1_placement = [10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
-antenna2_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
-gnss_noise = 0.25 # [%]
-gnss_accuracy = 5.5 # +- [m]
+gnss_antenna1_placement = [10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
+gnss_antenna2_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
+# ?NOTE: Since most Satellites orbit around equator, most likely satellite for GNSS will be from this group of satellites, this means they are more accurate horizontally than vertically 
+# ?NOTE: Horizontal => XY Plane
+# ?NOTE: Vertical => Z Direction (UP/DOWN)
+gnss_position_noise_horizontal = 0.15 # [%]
+gnss_position_accuracy_horizontal = 3.0 # +- [m]
+gnss_position_noise_vertical = 0.25 # [%]
+gnss_position_accuracy_vertical = 5.5 # +- [m]
+gnss_velocity_noise_horizontal = 0.1 # [%]
+gnss_velocity_accuracy_horizontal = 0.2 # +- [m/s]
+gnss_velocity_noise_vertical = 0.2 # [%]
+gnss_velocity_accuracy_vertical = 0.4 # +- [m/s]
 
 # Assuming a good consumer grade IMU
 imu_pub_frequency = 100.00 # [Hz]

@@ -78,41 +78,38 @@ fn main() {
     });
     // GET - Speed (STOP) ==================================================
 
-    // GET - GNSS Antenna1 (START) ==================================================
+    // GET - GNSS (START) ==================================================
     let gui_state_clone = gui_state.clone();
     thread::spawn(move || {
         loop {
             // Wait for sensor data
-            let msg = udp_utils::subscribe(TOPICS::gnss_antenna1::PORT).unwrap();
+            let msg = udp_utils::subscribe(TOPICS::gnss::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let antenna1: TOPICS::gnss_antenna1::DataType = udp_topics::decode_json(json_str);
+            let gnss: TOPICS::gnss::DataType = udp_topics::decode_json(json_str);
 
-            // Append to sensor history
+            // Parse data
+            let antenna1 = gnss.fixed_rows::<3>(0).into();
+            let antenna2 = gnss.fixed_rows::<3>(3).into();
+            let velocity = gnss.fixed_rows::<3>(6).into();
+
+            // Append to sensor position history
             {
                 let mut history = gui_state_clone.gnss_antenna1_history.write().unwrap();
                 history.push(antenna1);
             }
-        }
-    });
-    // GET - GNSS Antenna1 (STOP) ==================================================
-
-    // GET - GNSS Antenna2 (START) ==================================================
-    let gui_state_clone = gui_state.clone();
-    thread::spawn(move || {
-        loop {
-            // Wait for sensor data
-            let msg = udp_utils::subscribe(TOPICS::gnss_antenna2::PORT).unwrap();
-            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let antenna2: TOPICS::gnss_antenna2::DataType = udp_topics::decode_json(json_str);
-
-            // Append to sensor history
             {
                 let mut history = gui_state_clone.gnss_antenna2_history.write().unwrap();
                 history.push(antenna2);
             }
+
+            // Update GNSS Velocity
+            {
+                let mut gnss_velocity = gui_state_clone.gnss_velocity.write().unwrap();
+                *gnss_velocity = velocity;
+            }
         }
     });
-    // GET - GNSS Antenna2 (STOP) ==================================================
+    // GET - GNSS (STOP) ==================================================
 
     // GET - IMU (START) ==================================================
     let gui_state_clone = gui_state.clone();

@@ -65,8 +65,7 @@ fn main() {
     spawn_logger!(x,                   "x.csv");
     spawn_logger!(dx,                  "dx.csv");
     spawn_logger!(speed,               "speed.csv");
-    spawn_logger!(gnss_antenna1,       "gnss_antenna1.csv");
-    spawn_logger!(gnss_antenna2,       "gnss_antenna2.csv");
+    spawn_logger!(gnss,                "gnss.csv");
     spawn_logger!(imu,                 "imu.csv");
     
 

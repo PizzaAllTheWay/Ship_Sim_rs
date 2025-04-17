@@ -95,12 +95,20 @@ impl ShipDynamics {
         v_ang: Vector3<f32>,
         wind: Vector3<f32>,
         current: Vector3<f32>,
+        gravity_b: Vector3<f32>,
+        pos_cg_w: Vector3<f32>,
     ) -> (Vector3<f32>, Vector3<f32>) {
         // Dampening ----------
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability 
         let d_lin: f32 = 0.085;
+        let d_lin_matrix = Matrix3::new(
+            0.085,  0.0,  0.0,
+              0.0,  0.2,  0.0,
+              0.0,  0.0,  0.9,
+        );
         let d_ang: f32 = 200000.0;
-        let mut force_dampening = (-d_lin) * v_lin;
+        
+        let mut force_dampening = (-d_lin_matrix) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
 
         // Apply extra dampening for the sides
@@ -183,16 +191,70 @@ impl ShipDynamics {
         torque_current[1] = k_ty * force_current[0] * force_current[2]; // Fx * Fz → pitch
         torque_current[2] = -k_tz * force_current[0] * force_current[1]; // Fx * Fy → yaw
 
+        // Calculate gravity forces ----------
+        let mut force_gravity = self.m * gravity_b;
+
+        // Easiest way to dampen oscillations, limit how fast a force can act when reaching its maximum velocity
+        // In theory it could be higher but lets be hones, no one is doping a ship from space to earth, in order to reach the absolute maximum terminal velocity
+        // For movement up and down on water, this max velocity constraint is more than enough
+        self.apply_directional_decay(&mut force_gravity, v_lin, self.v_lin_max, 1.0);
+
+        // Calculate buoyancy forces ----------
+        // Constants
+        let rho_water = 1000.0; // kg/m³
+        let g = 9.81; // m/s²
+        let r = self.dimensions[0];
+        let l = self.dimensions[1];
+
+        // Calculate boats distance from the surface of the water
+        let pos_water_surface_w = pos_cg_w - Vector3::new(0.0, 0.0, r/2.0);
+        let dh = pos_water_surface_w[2];
+        
+        // Calculate volume
+        // Assume boat is a half a cylinder
+        let area_submerged: f32;
+        if dh > 0.0 {
+            // No area submerged
+            area_submerged = 0.0;
+        }
+        else if dh < (-r) {
+            // The whole body is submerged under water
+            area_submerged = (1.0/2.0) * PI * r.powi(2);
+        }
+        else {
+            // Partially submerged, bit more tricky calculation
+            let s = r - dh.abs();
+            let x = (r.powi(2) - s.powi(2)).sqrt();
+            let area_triangle = x * s;
+            let theta = ((2.0 * area_triangle)/r.powi(2)).asin();
+            let area_sector = (theta * r.powi(2))/2.0;
+
+            area_submerged = area_sector - area_triangle;
+        }
+        let volume_submerged = area_submerged * l;
+
+        // Calculate buoyancy force
+        let force_buoyancy_z = rho_water * g * volume_submerged;
+        let mut force_buoyancy = Vector3::new(0.0, 0.0, force_buoyancy_z);
+
+        // Easiest way to dampen oscillations, limit how fast a force can act when reaching its maximum velocity
+        // Same reason as for gravity but now the opposite direction
+        // For movement up and down on water, this max velocity constraint is more than enough
+        self.apply_directional_decay(&mut force_buoyancy, v_lin, self.v_lin_max, 5.0);
+
         // Calculate subsystem forces ----------
         // x
-        let force_x = force_dampening + force_drag;
-        let torque_x = torque_dampening + torque_drag;
+        let mut force_x = force_dampening + force_drag;
+        let mut torque_x = torque_dampening + torque_drag;
+        self.apply_directional_decay(&mut force_x, v_lin, self.v_lin_max, 1.0);
+        self.apply_directional_decay(&mut torque_x, v_ang, self.v_ang_max, 1.0);
+        force_x += force_gravity + force_buoyancy;
 
         // u
         let mut force_u = force_thrusters;
         let mut torque_u = torque_thrusters;
-        self.apply_directional_decay(&mut force_u, v_lin, self.v_lin_max, 10.0);
-        self.apply_directional_decay(&mut torque_u, v_ang, self.v_ang_max, 10.0);
+        self.apply_directional_decay(&mut force_u, v_lin, self.v_lin_max, 5.0);
+        self.apply_directional_decay(&mut torque_u, v_ang, self.v_ang_max, 5.0);
 
         // w
         let force_w = force_wind + force_current;

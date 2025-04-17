@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 // Custom Types
 // =====================
 pub type Vector7<T> = SVector<T, 7>;
+pub type Vector9<T> = SVector<T, 9>;
 pub type Vector12<T> = SVector<T, 12>;
 
 // =====================
@@ -104,22 +105,15 @@ pub mod TOPICS {
         pub type DataType = Vector2<f32>;
     }
 
-    // Data Type [Vector3<f32>]:
-    // antenna (World Frame): [x, y]
-    pub mod gnss_antenna1 {
+    // Data Type [Vector9<f32>]:
+    // antenna 1 position (World Frame): [x, y, z]
+    // antenna 2 position (World Frame): [x, y, z]
+    // GNSS velocity linear (World Frame): [vx, vy, vz]
+    pub mod gnss {
         use super::*;
-        use Vector2;
+        use Vector9;
         pub const PORT: u16 = 5580;
-        pub type DataType = Vector2<f32>;
-    }
-
-    // Data Type [Vector3<f32>]:
-    // antenna (World Frame): [x, y]
-    pub mod gnss_antenna2 {
-        use super::*;
-        use Vector2;
-        pub const PORT: u16 = 5581;
-        pub type DataType = Vector2<f32>;
+        pub type DataType = Vector9<f32>;
     }
 
     // Data Type [Vector7<f32>]:
@@ -129,7 +123,7 @@ pub mod TOPICS {
     pub mod imu {
         use super::*;
         use Vector7;
-        pub const PORT: u16 = 5582;
+        pub const PORT: u16 = 5581;
         pub type DataType = Vector7<f32>;
     }
 }

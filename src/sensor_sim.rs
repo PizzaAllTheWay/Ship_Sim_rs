@@ -28,10 +28,16 @@ use rand::Rng;
 struct SensorConfig {
     gnss_pub_frequency: f32,
     gnss_pub_variance: f32,
-    antenna1_placement: [f32; 3],
-    antenna2_placement: [f32; 3],
-    gnss_noise: f32,
-    gnss_accuracy: f32,
+    gnss_antenna1_placement: [f32; 3],
+    gnss_antenna2_placement: [f32; 3],
+    gnss_position_noise_horizontal: f32,
+    gnss_position_accuracy_horizontal: f32,
+    gnss_position_noise_vertical: f32,
+    gnss_position_accuracy_vertical: f32,
+    gnss_velocity_noise_horizontal: f32,
+    gnss_velocity_accuracy_horizontal: f32,
+    gnss_velocity_noise_vertical: f32,
+    gnss_velocity_accuracy_vertical: f32,
 
     imu_pub_frequency: f32,
     imu_placement: [f32; 6],
@@ -98,9 +104,6 @@ fn main() {
     // SEND - GNSS Data (START) ==================================================
     let x_clone = x.clone();
     thread::spawn(move || {
-        let antenna1_placement = Vector3::from(config.sensor.antenna1_placement);
-        let antenna2_placement = Vector3::from(config.sensor.antenna2_placement);
-
         let dt = 1.0/config.sensor.gnss_pub_frequency; // [s]
         
         loop {
@@ -116,6 +119,7 @@ fn main() {
             thread::sleep(interval);
 
             // Split up states into manageable subparts
+            let v_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(0).into(); // [vx, vy, vz]
             let r_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(6).into(); // [x, y, z]
             let r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
@@ -123,12 +127,22 @@ fn main() {
             let r_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * r_lin_w;
 
             // Simulate gnss
-            let (gnss_antenna1_b, gnss_antenna2_b) = gnss::simulate(
+            let (gnss_antenna1_b, gnss_antenna2_b, gnss_speed_w) = gnss::simulate(
                 r_lin_b, 
-                antenna1_placement, 
-                antenna2_placement, 
-                config.sensor.gnss_noise, 
-                config.sensor.gnss_accuracy,
+                v_lin_w,
+
+                Vector3::from(config.sensor.gnss_antenna1_placement),
+                Vector3::from(config.sensor.gnss_antenna2_placement),
+
+                config.sensor.gnss_position_noise_horizontal, 
+                config.sensor.gnss_position_accuracy_horizontal,
+                config.sensor.gnss_position_noise_vertical, 
+                config.sensor.gnss_position_accuracy_vertical,
+
+                config.sensor.gnss_velocity_noise_horizontal, 
+                config.sensor.gnss_velocity_accuracy_horizontal,
+                config.sensor.gnss_velocity_noise_vertical, 
+                config.sensor.gnss_velocity_accuracy_vertical,
             );
 
             // Kinematics
@@ -136,14 +150,20 @@ fn main() {
             let gnss_antenna2_w = kinematics::r_body_to_world(r_ang_w) * gnss_antenna2_b;
 
             // Publish data
-            let gnss_antenna1: TOPICS::gnss_antenna1::DataType = gnss_antenna1_w.fixed_rows::<2>(0).into();
-            let gnss_antenna2: TOPICS::gnss_antenna2::DataType = gnss_antenna2_w.fixed_rows::<2>(0).into();
+            let mut gnss: TOPICS::gnss::DataType = TOPICS::gnss::DataType::zeros();
+            gnss[0] = gnss_antenna1_w[0];
+            gnss[1] = gnss_antenna1_w[1];
+            gnss[2] = gnss_antenna1_w[2];
+            gnss[3] = gnss_antenna2_w[0];
+            gnss[4] = gnss_antenna2_w[1];
+            gnss[5] = gnss_antenna2_w[2];
+            gnss[6] = gnss_speed_w[0];
+            gnss[7] = gnss_speed_w[1];
+            gnss[8] = gnss_speed_w[2];
 
-            let gnss_antenna1_json = udp_topics::encode_json(&gnss_antenna1);
-            let gnss_antenna2_json = udp_topics::encode_json(&gnss_antenna2);
+            let gnss_json = udp_topics::encode_json(&gnss);
 
-            udp_utils::publish(TOPICS::gnss_antenna1::PORT, gnss_antenna1_json.as_bytes()).expect("Failed to publish antenna1 data");
-            udp_utils::publish(TOPICS::gnss_antenna2::PORT, gnss_antenna2_json.as_bytes()).expect("Failed to publish antenna2 data");
+            udp_utils::publish(TOPICS::gnss::PORT, gnss_json.as_bytes()).expect("Failed to publish antenna1 data");
         }
     });
     // SEND - GNSS Data (STOP) ==================================================
