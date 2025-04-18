@@ -60,23 +60,23 @@ imu_mag_fsr = 6.28 # [rad] full scale resolution
 kf_pub_frequency = 100.00 # [Hz]
 # ?NOTE: Never have 0.0 in P_0, as that indicates we are 100% confident in our model from the start, this means we would not trust the measurements as the estimator would assume we already have perfect model, witch we don't
 P_0 = [
-    0.001, 0.001, 0.001, # Uncertainty: [vx, vy, vz]
-    0.001, 0.001, 0.001, # Uncertainty: [wx, wy, wz]
-    0.001, 0.001, 0.001, # Uncertainty: [x, y, z]
-    0.001, 0.001, 0.001, # Uncertainty: [roll, pitch, yaw]
+    100.0, 100.0, 100.0, # Uncertainty: [vx, vy, vz]
+    100.0, 100.0, 100.0, # Uncertainty: [wx, wy, wz]
+    100.0, 100.0, 100.0, # Uncertainty: [x, y, z]
+    100.0, 100.0, 100.0, # Uncertainty: [roll, pitch, yaw]
 ]
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
-    1.000, 1.000, 1.000, # Model trust in: [vx, vy, vz]
-    1.000, 1.000, 1.000, # Model trust in: [wx, wy, wz]
-    1.000, 1.000, 1.000, # Model trust in: [x, y, z]
-    1.000, 1.000, 1.000, # Model trust in: [roll, pitch, yaw]
+     6.0,  6.0,  3.0, # Model trust in: [vx, vy, vz]
+    50.0, 50.0, 10.0, # Model trust in: [wx, wy, wz]
+    10.0, 10.0,  3.0, # Model trust in: [x, y, z]
+    90.0, 90.0, 40.0, # Model trust in: [roll, pitch, yaw]
 ]
-# ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix
+# ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [
-    0.001, 0.001, 0.001, # Measurement trust in: antenna1 [x, y, z]
-    0.001, 0.001, 0.001, # Measurement trust in: antenna2 [x, y, z]
-    0.001, 0.001, 0.001, # Measurement trust in: velocity [vx, vy, vz]
+    1.600936, 1.619552, 5.448326, # Measurement trust in: antenna1 [x, y, z]
+    1.560227, 1.512290, 5.518882, # Measurement trust in: antenna2 [x, y, z]
+    0.824833, 0.824833, 1.096953, # Measurement trust in: velocity [vx, vy, vz]
 ]
 
 

@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 
 
 
+
 // Custom data types ----------
 pub type Vector9<T> = SVector<T, 9>;
 pub type Vector12<T> = SVector<T, 12>;
@@ -24,8 +25,69 @@ pub struct SharedState {
 
 
 
+
+
+
+// ! DELETE LATER?
+
+/// Max allowed combined size (adjust if needed)
+const MAX_SIZE: usize = 24;
+
+/// Compile-time assertion helper
+pub struct ConstAssert<const CHECK: bool>;
+pub trait IsTrue {}
+impl IsTrue for ConstAssert<true> {}
+
+pub fn discretize_system<const N: usize, const M: usize>(
+    A: SMatrix<f32, N, N>,
+    B: SMatrix<f32, N, M>,
+    dt: f32,
+    terms: usize,
+) -> (SMatrix<f32, N, N>, SMatrix<f32, N, M>) {
+    const NM: usize = 12 + 6; // <--- Replace with N + M when fixed size known
+    // OR: use associated consts via traits if you want generic solution (needs more boilerplate)
+
+    let mut aug = SMatrix::<f32, NM, NM>::zeros();
+    aug.fixed_view_mut::<N, N>(0, 0).copy_from(&A);
+    aug.fixed_view_mut::<N, M>(0, N).copy_from(&B);
+
+    let mut exp_aug = matrix_exponential::<NM>(aug, dt, terms);
+    let F_d = exp_aug.fixed_view_mut::<N, N>(0, 0).into_owned();
+    let B_d = exp_aug.fixed_view_mut::<N, M>(0, N).into_owned();
+
+    (F_d, B_d)
+}
+
+/// Generic matrix exponential using truncated Taylor series.
+pub fn matrix_exponential<const N: usize>(
+    a: SMatrix<f32, N, N>,
+    dt: f32,
+    terms: usize,
+) -> SMatrix<f32, N, N> {
+    let mut result = SMatrix::<f32, N, N>::identity();
+    let mut term = SMatrix::<f32, N, N>::identity();
+    let mut factorial = 1.0;
+
+    for i in 1..terms {
+        term = term * (dt * a);
+        factorial *= i as f32;
+        result += term / factorial;
+    }
+
+    result
+}
+
+// ! DELETE LATER?
+
+
+
+
+
+
+
+
 #[allow(non_snake_case)]
-pub fn estimate(
+pub fn predict(
     dt: f32,
     x_est_prev: Vector12<f32>,
     u_prev: Vector6<f32>,
@@ -51,8 +113,16 @@ pub fn estimate(
     // u[k-1]: Previous control input
     // F_d: Discrete state transition matrix
     // B_d: Discrete control input matrix
-    let F_d: Matrix12x12<f32> = Matrix12x12::identity() + dt*A;
-    let B_d: Matrix12x6<f32> = dt*B;
+    // let F_d: Matrix12x12<f32> = Matrix12x12::identity() + dt*A;
+    // let B_d: Matrix12x6<f32> = dt*B;
+
+    //! DELETE LATER?
+    let (F_d, B_d) = discretize_system::<12, 6>(A, B, dt, 10);
+
+
+
+
+
 
     // Calculate estimate based ONLY on state
     let x_est_priori: Vector12<f32> = F_d*x_est_prev + B_d*u_prev;

@@ -43,8 +43,8 @@ x_data = load_data(
 
 # === Ground Truth Values from latest x.csv ===
 # General data get
-antenna1_offset = config["sensor"]["gnss_antenna1_placement"]
-antenna2_offset = config["sensor"]["gnss_antenna2_placement"]
+antenna1_offset = config["sensors"]["gnss_antenna1_placement"]
+antenna2_offset = config["sensors"]["gnss_antenna2_placement"]
 com_x = x_data["px"].iloc[-1]
 com_y = x_data["py"].iloc[-1]
 com_z = x_data["pz"].iloc[-1]
@@ -196,3 +196,22 @@ plt.legend()
 plt.grid(True)
 plt.tight_layout()
 plt.show()
+
+
+
+# === GNSS Measurement Variance (for Kalman R_gnss matrix) ===
+variances = {
+    "Antenna1_X": np.var(gnss_data["x1"]),
+    "Antenna1_Y": np.var(gnss_data["y1"]),
+    "Antenna1_Z": np.var(gnss_data["z1"]),
+    "Antenna2_X": np.var(gnss_data["x2"]),
+    "Antenna2_Y": np.var(gnss_data["y2"]),
+    "Antenna2_Z": np.var(gnss_data["z2"]),
+    "Velocity_X": np.var(gnss_data["vx"]),
+    "Velocity_Y": np.var(gnss_data["vy"]),
+    "Velocity_Z": np.var(gnss_data["vz"]),
+}
+
+print("\n=== GNSS Measurement Variances ===")
+for name, var in variances.items():
+    print(f"{name}: {var:.6f}")

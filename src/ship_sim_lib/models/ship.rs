@@ -59,9 +59,9 @@ impl ShipDynamics {
     }
 
 
-    /// Applies directional exponential decay to a vector `input`
-    /// when its direction matches the corresponding `reference` vector
-    /// and the reference magnitude approaches a `limit`.
+    // Applies directional exponential decay to a vector `input`
+    // when its direction matches the corresponding `reference` vector
+    // and the reference magnitude approaches a `limit`.
     pub fn apply_directional_decay(
         &self,
         input: &mut Vector3<f32>,

@@ -30,6 +30,8 @@ use nalgebra::{Vector3, Vector6};
 struct ShipConfig {
     mass: f32,
     dimensions: [f32; 2],
+    velocity_linear_max: f32,
+    velocity_angular_max: f32,
     x_0: [f32; 12],
     u_0: [f32; 6],
 }
@@ -73,12 +75,16 @@ impl ODE {
         x_0: Vector12<f32>, // Initial states
         ship_mass: f32, // [kg]
         ship_dimensions: [f32; 2], // (r, l) [m]
+        velocity_linear_max: f32, // [m/s]
+        velocity_angular_max: f32, // [m/s]
 
     ) -> Self {
         // Initialize ship dynamics        
         let ship_dynamic = ship_approx::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
+            velocity_linear_max,
+            velocity_angular_max,
         );
 
         // Initialize starting conditions
@@ -203,17 +209,29 @@ fn main() {
 
 
     // Kalman Filter (START) ==================================================
-    // Shared resources for KF ----------
+    // Initialize Shared states for KF ----------
     let kf = kf::SharedState::default();
+    {
+        let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
+        let mut x_est = kf.x_est.write().unwrap();
+        *x_est = x_0;
+    }
+    #[allow(non_snake_case)]
+    {
+        let P_0_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.P_0);
+        let P_0: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&P_0_vector);
+        let mut P = kf.P.write().unwrap();
+        *P = P_0;
+    }
 
-    // Estimate using linearized state space model ----------
+    // Predict using linearized state space model ----------
     let kf_clone = kf.clone();
     let forces_thruster_clone = forces_thruster.clone();
     #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
         // Calculate interval for KF Estimate publishing rate
-        let dt = 1.0/config.estimators.kf_pub_frequency; // [s]
+        let mut dt = 1.0/config.estimators.kf_pub_frequency; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64); // [ms]
 
         // Get initial states
@@ -233,6 +251,8 @@ fn main() {
             x_0, 
             config.ship.mass,
             config.ship.dimensions,
+            config.ship.velocity_linear_max,
+            config.ship.velocity_angular_max,
         );
 
         let x_ref = x_0.clone();
@@ -250,23 +270,9 @@ fn main() {
         println!("#====================================================================================================#");
         println!();
 
-        // Get initial uncertainty matrix of the estimate
-        let P_0_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.P_0);
-        let P_0: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&P_0_vector);
-
         // Get confidence matrix for our model
         let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.Q);
         let Q: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&Q_vector);
-
-        // Update KF states ----------
-        {
-            let mut x_est = kf_clone.x_est.write().unwrap();
-            *x_est = x_0;
-        }
-        {
-            let mut P = kf_clone.P.write().unwrap();
-            *P = P_0;
-        }
 
         loop {
             let start_t = Instant::now();
@@ -278,8 +284,12 @@ fn main() {
             let x_est_prev = *kf_clone.x_est.read().unwrap();
             let P_prev = *kf_clone.P.read().unwrap();
             
-            // Estimate
-            let (x_est_priori, P_priori) = kf::estimate(
+            // !REMOVE!????
+            let A = numerical_jacobian(&f_x, &x_est_prev, 1e-4);
+            let B = numerical_jacobian(&f_u, &u_prev, 1e-4);
+            
+            // Predict
+            let (x_est_priori, P_priori) = kf::predict(
                 dt, 
                 x_est_prev, 
                 u_prev, 
@@ -289,7 +299,10 @@ fn main() {
                 Q
             );
 
-            // Clam P because it has a tendency to blow up in certain fields
+            //println!("x: {:?}", x_est_prev);
+
+            // Clamp estimate and P because it has a tendency to blow up in certain fields
+            let x_est_priori = x_est_priori.map(|v| v.clamp(-1e3, 1e3));
             let P_priori = clamp_matrix(P_priori, 1e6);
 
             // Update KF states
@@ -303,14 +316,6 @@ fn main() {
             }
 
             // Publish KF data
-            // let kf_data = TOPICS::kf::DataType {
-            //     x_est: x_est_priori,
-            //     // P: Some(P_priori),
-            //     // y_gnss: None,
-            //     // S_gnss: None,
-            //     // K_gnss: None,
-            // };
-
             let kf_data: TOPICS::kf::DataType = x_est_priori;
             let kf_data_json = udp_utils::encode_json(&kf_data);
             udp_utils::publish(TOPICS::kf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
@@ -325,7 +330,6 @@ fn main() {
     });
 
     // Correction using GNSS ----------
-    /*
     let kf_clone = kf.clone();
     #[allow(non_snake_case)]
     thread::spawn(move || {
@@ -341,9 +345,11 @@ fn main() {
         // We do that by linearizing h(x) with respect to x
         // H = dh/dx = Jacobian(h(x), x)
         let h_fn = |x: &Vector12<f32>| {
-            h_gnss(x.clone(), // pass ownership
-                   Vector3::from(config.sensors.gnss_antenna1_placement),
-                   Vector3::from(config.sensors.gnss_antenna2_placement))
+            h_gnss(
+                x.clone(), // pass ownership
+                Vector3::from(config.sensors.gnss_antenna1_placement),
+                Vector3::from(config.sensors.gnss_antenna2_placement),
+            )
         };
         let H = numerical_jacobian(&h_fn, &x_0, 1e-4);
 
@@ -370,6 +376,9 @@ fn main() {
             let P_priori = *kf_clone.P.read().unwrap();
 
             // Correction
+            // !REMOVE????
+            let H = numerical_jacobian(&h_fn, &x_est_priori, 1e-4);
+
             let (
                 x_est,
                 P,
@@ -384,11 +393,9 @@ fn main() {
                 R,
             );
 
-            // Clam P because it has a tendency to blow up in certain fields
-            let P = clamp_matrix(P, 1e6);
-            let K = clamp_matrix(K, 1e6);
-
-            // !println!("x_est: {:?}", x_est);
+            // Clamp estimate and P because it has a tendency to blow up in certain fields
+            let x_est = x_est.map(|v| v.clamp(-1e3, 1e3));
+            let P_priori = clamp_matrix(P_priori, 1e6);
 
             // Update KF states
             {
@@ -401,19 +408,11 @@ fn main() {
             }
 
             // Publish KF data
-            // let kf_data = TOPICS::kf::DataType {
-            //     x_est: x_est,
-            //     // P: Some(P),
-            //     // y_gnss: Some(y),
-            //     // S_gnss: Some(S),
-            //     // K_gnss: Some(K),
-            // };
             let kf_data: TOPICS::kf::DataType = x_est;
             let kf_data_json = udp_utils::encode_json(&kf_data);
             udp_utils::publish(TOPICS::kf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
-    */
 
     // Correction using IMU ----------
     thread::spawn(move || {

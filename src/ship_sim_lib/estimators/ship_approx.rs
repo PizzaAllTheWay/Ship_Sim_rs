@@ -12,6 +12,8 @@ pub struct ShipDynamics {
     pub m: f32,                // mass of the boat [kg]
     pub dimensions: [f32; 2],  // dimensions of the boat (r, l) [m]
     pub I_inv: Matrix3<f32>,   // inverse moment of inertia for faster computation [1/kg*m²]
+    pub velocity_linear_max: f32, // [m/s]
+    pub velocity_angular_max: f32, // [m/s]
 }
 
 impl ShipDynamics {
@@ -20,6 +22,8 @@ impl ShipDynamics {
     pub fn new(
         m: f32,
         dimensions: [f32; 2],
+        velocity_linear_max: f32,
+        velocity_angular_max: f32,
     ) -> Self {
         // Simplify ship to a cuboid shape
         // Moment of inertia for a solid cuboid
@@ -56,6 +60,28 @@ impl ShipDynamics {
             m,
             dimensions,
             I_inv,
+            velocity_linear_max,
+            velocity_angular_max,
+        }
+    }
+
+    // Applies directional exponential decay to a vector `input`
+    // when its direction matches the corresponding `reference` vector
+    // and the reference magnitude approaches a `limit`.
+    pub fn apply_directional_decay(
+        &self,
+        input: &mut Vector3<f32>,
+        reference: Vector3<f32>,
+        limit: f32,
+        decay_rate: f32,
+    ) {
+        for i in 0..3 {
+            // input[i] *= f32::max((limit - reference[i].abs())/decay_rate, 0.0);
+            let mut damping = f32::max((limit - reference[i].abs())/decay_rate, 0.0);
+            if damping == 0.0 {
+                damping = (limit + reference[i].abs())/decay_rate;
+            }
+            input[i] *= damping;
         }
     }
 
@@ -79,9 +105,9 @@ impl ShipDynamics {
         // Dampening ----------
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability
         let d_lin_matrix = Matrix3::new(
-            0.1,  0.0,  0.0,
-            0.0,  0.5,  0.0,
-            0.0,  0.0,  0.9,
+            200.0,  0.0,  0.0,
+            0.0,  600.0,  0.0,
+            0.0,  0.0,  300000.0,
         );
         let d_ang: f32 = 100000.0;
         
@@ -133,7 +159,7 @@ impl ShipDynamics {
         let r = self.dimensions[0];
         let l = self.dimensions[1];
         let w = 2.0 * r;
-        let h = 2.0 * r;
+        let h: f32 = 2.0 * r;
 
         // Calculate boats distance from the surface of the water
         let pos_water_surface_w = pos_cg_w - Vector3::new(0.0, 0.0, r);
@@ -146,29 +172,32 @@ impl ShipDynamics {
             // No area submerged
             area_submerged = 0.0;
         }
-        else if dh < ((-2.0) * r) {
+        else if dh < (-h) {
             // The whole body is submerged under water
             area_submerged = w * h;
         }
         else {
             // Partially submerged
-            area_submerged = w * dh;
+            area_submerged = w * dh.abs();
         }
         let volume_submerged = area_submerged * l;
 
         // Calculate buoyancy force
         let force_buoyancy_z = rho_water * g * volume_submerged;
         let force_buoyancy = Vector3::new(0.0, 0.0, force_buoyancy_z);
-
+        
         // Calculate subsystem forces ----------
         // x
         let force_x = force_dampening + force_drag + force_gravity + force_buoyancy;
         let torque_x = torque_dampening + torque_drag;
 
         // u
-        let force_u = force_thrusters;
-        let torque_u = torque_thrusters;
-
+        // ?NOTE: Forces need to be prescaled down as the original force acting on the body is to big compared to the real model, by scaling down easier to approximate the model
+        let mut force_u = 0.05 * force_thrusters;
+        let mut torque_u = 0.5 * torque_thrusters;
+        self.apply_directional_decay(&mut force_u, v_lin, self.velocity_linear_max, 0.5);
+        self.apply_directional_decay(&mut torque_u, v_ang, self.velocity_angular_max, 0.5);
+        
         // Calculate total forces ----------
         let force_tot = force_x + force_u;
         let torque_tot = torque_x + torque_u;
