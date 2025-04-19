@@ -5,7 +5,7 @@ pub mod comm {
 
 pub mod estimators {
     pub mod estimators_utils;
-    pub mod kf;
+    pub mod ekf;
     pub mod ship_approx;
 }
 

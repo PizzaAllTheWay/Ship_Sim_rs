@@ -29,8 +29,8 @@ current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore
 # Assuming a good consumer grade GNSS
 gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
-gnss_antenna1_placement = [10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
-gnss_antenna2_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
+gnss_antenna1_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
+gnss_antenna2_placement = [0.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Center) placement of the antenna relative to the center of mass on the ship body frame 
 # ?NOTE: Since most Satellites orbit around equator, most likely satellite for GNSS will be from this group of satellites, this means they are more accurate horizontally than vertically 
 # ?NOTE: Horizontal => XY Plane
 # ?NOTE: Vertical => Z Direction (UP/DOWN)
@@ -67,10 +67,10 @@ P_0 = [
 ]
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
-    900.06, 900.06, 900.03, # Model trust in: [vx, vy, vz]
-    900.50, 900.50, 900.10, # Model trust in: [wx, wy, wz]
-    900.10, 900.10, 900.03, # Model trust in: [x, y, z]
-    900.09, 900.09, 900.04, # Model trust in: [roll, pitch, yaw]
+    10.0006, 10.0006, 10.0003, # Model trust in: [vx, vy, vz]
+    10.0050, 10.0050, 10.0010, # Model trust in: [wx, wy, wz]
+    1.00010, 1.00010, 0.0003, # Model trust in: [x, y, z]
+    10.000009, 10.000009, 10.0004, # Model trust in: [roll, pitch, yaw]
 ]
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [

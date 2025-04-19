@@ -114,7 +114,8 @@ fn discretize_ab_zoh<const N: usize, const M: usize>(
 
 
 #[allow(non_snake_case)]
-pub fn predict(
+pub fn predict<F>(
+    f: F,
     dt: f32,
     x_est_post_prev: Vector12<f32>,
     u_prev: Vector2<f32>,
@@ -122,7 +123,13 @@ pub fn predict(
     A: Matrix12x12<f32>,
     B: Matrix12x2<f32>,
     Q: Matrix12x12<f32>,
-) -> (Vector12<f32>, Matrix12x12<f32>) {
+) -> (
+    Vector12<f32>,
+    Matrix12x12<f32>,
+)
+where
+    F: Fn(&Vector12<f32>, &Vector2<f32>) -> Vector12<f32>,
+{
     // Get discretized state matrixes
     // In order to do proper estimation we use euler forward method
     // This yields us state estimate using only linearized model
@@ -159,6 +166,8 @@ pub fn predict(
     // Calculate estimate based ONLY on state
     let x_est_pri: Vector12<f32> = F_d*x_est_post_prev + B_d*u_prev;
 
+    let x_est_pri: Vector12<f32> = x_est_post_prev + dt * f(&x_est_post_prev, &u_prev);
+
     // Calculate state uncertainty
     // We must calculate how uncertain we are with the estimate using only model to estimate
     // Over time if no correction is made we will get higher and higher uncertainty
@@ -179,7 +188,7 @@ pub fn predict(
 
 #[allow(non_snake_case)]
 pub fn correct<F>(
-    h_fn: F,
+    h: F,
     z: Vector9<f32>,
     x_est_pri: Vector12<f32>,
     P_pri: Matrix12x12<f32>,
@@ -211,7 +220,7 @@ where
     let y: Vector9<f32> = z - H*x_est_pri;
     
     // ! REMOVE?????
-    let y: Vector9<f32> = z - h_fn(&x_est_pri);
+    let y: Vector9<f32> = z - h(&x_est_pri);
 
     // ! DEBUGGING
     // println!("predicted state = {:?}", x_est_pri);
@@ -251,8 +260,8 @@ where
     // Correct estimate using model AND measurement
     // To know how much to subtract/add from estimate priori, we must utilize kalman gain on Innovation Residual
     // This will give optimal balance of how much to add to each estimate prior to get a good balance between estimate and measurement
-    // x_est[k] = x_est_priori[k] - K[k]*y[k]
-    let x_est: Vector12<f32> = x_est_pri - K*y;
+    // x_est[k] = x_est_priori[k] + K[k]*y[k]
+    let x_est: Vector12<f32> = x_est_pri + K*y;
 
     // Correct Estimate Uncertainty
     // Before we finish, we just corrected estimate

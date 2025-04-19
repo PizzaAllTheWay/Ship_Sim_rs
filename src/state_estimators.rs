@@ -5,7 +5,7 @@ use ship_sim_lib::estimators::estimators_utils::{
     print_matrix,
     clamp_matrix,
 };
-use ship_sim_lib::estimators::kf::{self, Vector9, Vector12, Matrix9x9, Matrix12x12, Matrix12x2};
+use ship_sim_lib::estimators::ekf::{self, Vector9, Vector12, Matrix9x9, Matrix12x12, Matrix12x2};
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::TOPICS;
@@ -256,16 +256,6 @@ fn h_gnss(
     return y;
 }
 
-// Limits the angles to stay in -pi to pi
-// This is VERY important because angular position will grow to 100xpi over time
-// This then when linearizing gives transforms of matrix H and even A and B VERY EXTREME because we linearized X-X
-// To mitigate most of this we wrap angles to -pi to pi to make sense :)
-fn wrap_angle(angle: f32) -> f32 {
-    //(angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI) - std::f32::consts::PI
-
-    (angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI) - std::f32::consts::PI
-}
-
 
 
 fn main() {
@@ -306,7 +296,7 @@ fn main() {
     let P_0_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.P_0);
     #[allow(non_snake_case)]
     let P_0: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&P_0_vector);
-    let kf = kf::SharedState::default();
+    let kf = ekf::SharedState::default();
 
     {
         let mut x_est_post = kf.x_est_post.write().unwrap();
@@ -343,7 +333,7 @@ fn main() {
         let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
         let u_0: Vector2<f32> = Vector2::<f32>::from_row_slice(&config.ship.u_0);
 
-        // Get linearized system matrixes
+        // Setup functions to linearize system later for any given work point
         let ode: ODE = ODE::new(
             x_0, 
             config.ship.mass,
@@ -358,16 +348,6 @@ fn main() {
         let f_x = |x: &Vector12<f32>| ode.f(x, &u_ref);
         let f_u = |u: &Vector2<f32>| ode.f(&x_ref, u);
 
-        let (A, B) = linearize_system(f_x, f_u, &x_0, &u_0, 1e-4, 1e-4);
-
-        println!("#====================================================================================================#");
-        println!("Kalman Filter:");
-        println!("Linearized state space matrices of approximated non linear ship model f(x, u)");
-        print_matrix("A", &A);
-        print_matrix("B", &B);
-        println!("#====================================================================================================#");
-        println!();
-
         // Get confidence matrix for our model
         let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.Q);
         let Q: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&Q_vector);
@@ -379,37 +359,15 @@ fn main() {
             let u_prev = *thruster_control_clone.read().unwrap();
 
             // Get KF states
-            let mut x_est_post_prev = *kf_clone.x_est_post.read().unwrap();
+            let x_est_post_prev = *kf_clone.x_est_post.read().unwrap();
             let P_post_prev = *kf_clone.P_post.read().unwrap();
 
-            // ! DEBUG
-            // let x_est_post_prev = x_est_post_prev + dt * ode.f(&x_est_post_prev, &u_prev);
-            // println!("x: {:?}", x_est_post_prev);
-            // print_matrix("A", &A);
-            // print_matrix("B", &B);
-            // {
-            //     let mut x_est = kf_clone.x_est_post.write().unwrap();
-            //     *x_est = x_est_post_prev;
-            // }
-            // let kf_data: TOPICS::kf::DataType = x_est_post_prev;
-            // let kf_data_json = udp_utils::encode_json(&kf_data);
-            // udp_utils::publish(TOPICS::kf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
-            
-            // !REMOVE!????
-            x_est_post_prev[9] = wrap_angle(x_est_post_prev[9]);
-            x_est_post_prev[10] = wrap_angle(x_est_post_prev[10]);
-            x_est_post_prev[11] = wrap_angle(x_est_post_prev[11]);
-            // let A = numerical_jacobian(&f_x, &x_est_post_prev, 1e-4);
-            // let B = numerical_jacobian(&f_u, &u_prev, 1e-4);
+            // Linearize system around the current work point
             let (A, B) = linearize_system(f_x, f_u, &x_est_post_prev, &u_prev, 1e-4, 1e-4);
-            
-            println!("x: {:?}", x_est_post_prev);
-            println!("u: {:?}", u_prev);
-            print_matrix("A", &A);
-            print_matrix("B", &B);
-            
+
             // Predict
-            let (x_est_priori, P_priori) = kf::predict(
+            let (x_est_priori, P_priori) = ekf::predict(
+                |x, u| ode.f(x, u),
                 dt, 
                 x_est_post_prev, 
                 u_prev, 
@@ -419,17 +377,7 @@ fn main() {
                 Q
             );
 
-            // Clamp estimate and P because it has a tendency to blow up in certain fields
-            // Also the angular position must be limited to -pi to pi, else it might effect linearized H and even A and B matrices
-            // By keeping it contained we don't have to worry about estimates suddenly going 100x bigger because the angle in linearization step explodes to 100x as well
-            let mut x_est_priori = x_est_priori.map(|v| v.clamp(-1e3, 1e3));
-            x_est_priori[9] = wrap_angle(x_est_priori[9]);
-            x_est_priori[10] = wrap_angle(x_est_priori[10]);
-            x_est_priori[11] = wrap_angle(x_est_priori[11]);
-            let P_priori = clamp_matrix(P_priori, 1e6);
-
-            // ! DEBUG
-            println!("x estimated: {:?}", x_est_priori);
+            
 
             // Update KF states
             {
@@ -455,22 +403,12 @@ fn main() {
         }
     });
 
-    /*
     // Correction using GNSS ----------
     let kf_clone = kf.clone();
     #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
-        // Get initial states
-        let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
-
-        // Linearize measurement matrix
-        // In order to compare measurements with estimates, we must first transform estimates to reflect measurement space
-        // We do that by running h(x) to get estimates in measurement space
-        // However h(x) is highly non linear because of all the transforms
-        // For normal KF we must get H matrix
-        // We do that by linearizing h(x) with respect to x
-        // H = dh/dx = Jacobian(h(x), x)
+        // Set up function for later linearization of the measurement transform
         let h_fn = |x: &Vector12<f32>| {
             h_gnss(
                 x.clone(), // pass ownership
@@ -478,14 +416,6 @@ fn main() {
                 Vector3::from(config.sensors.gnss_antenna2_placement),
             )
         };
-        let H = numerical_jacobian(&h_fn, &x_0, 1e-4);
-
-        println!("#====================================================================================================#");
-        println!("Kalman Filter:");
-        println!("Linearized measurement state matrix of approximated non linear measurement transform h(x)");
-        print_matrix("H", &H);
-        println!("#====================================================================================================#");
-        println!();
 
         // Get confidence matrix for our measurements
         let R_vector: Vector9<f32> = Vector9::<f32>::from_row_slice(&config.estimators.R_gnss);
@@ -499,31 +429,26 @@ fn main() {
 
             // KF States
             let z = gnss;
-            let mut x_est_pri = *kf_clone.x_est_pri.read().unwrap();
+            let x_est_pri = *kf_clone.x_est_pri.read().unwrap();
             let P_pri = *kf_clone.P_pri.read().unwrap();
+            
+            // Linearize measurement matrix
+            // In order to compare measurements with estimates, we must first transform estimates to reflect measurement space
+            // We do that by running h(x) to get estimates in measurement space
+            // However h(x) is highly non linear because of all the transforms
+            // For normal KF we must get H matrix
+            // We do that by linearizing h(x) with respect to x
+            // H = dh/dx = Jacobian(h(x), x)
+            let H = numerical_jacobian(&h_fn, &x_est_pri, 1e-4);
 
             // Correction
-            // !REMOVE????
-            // let mut x_est_post = x_0;
-            // x_est_post[9] = wrap_angle(x_est_post[9]);
-            // x_est_post[10] = wrap_angle(x_est_post[10]);
-            // x_est_post[11] = wrap_angle(x_est_post[11]);
-            // let H = numerical_jacobian(&h_fn, &x_est_post, 1e-4);
-            //print_matrix("H", &H);
-
-            x_est_pri[9] = wrap_angle(x_est_pri[9]);
-            x_est_pri[10] = wrap_angle(x_est_pri[10]);
-            x_est_pri[11] = wrap_angle(x_est_pri[11]);
-            let H = numerical_jacobian(&h_fn, &x_est_pri, 1e-4);
-            print_matrix("H", &H);
-
             let (
                 x_est_posterior,
                 P_posterior,
                 y,
                 S,
                 K,
-            ) = kf::correct(
+            ) = ekf::correct(
                 |x| h_gnss(
                     x.clone(),
                     Vector3::from(config.sensors.gnss_antenna1_placement),
@@ -535,20 +460,6 @@ fn main() {
                 H,
                 R,
             );
-
-            // Clamp estimate and P because it has a tendency to blow up in certain fields
-            // Also the angular position must be limited to -pi to pi, else it might effect linearized H and even A and B matrices
-            // By keeping it contained we don't have to worry about estimates suddenly going 100x bigger because the angle in linearization step explodes to 100x as well
-            let mut x_est_posterior = x_est_posterior.map(|v| v.clamp(-1e3, 1e3));
-            x_est_posterior[9] = wrap_angle(x_est_posterior[9]);
-            x_est_posterior[10] = wrap_angle(x_est_posterior[10]);
-            x_est_posterior[11] = wrap_angle(x_est_posterior[11]);
-            let P_posterior = clamp_matrix(P_posterior, 1e6);
-
-            // ! DEBUG:
-            // print_matrix("P_posterior", &P_posterior);
-            // print_matrix("S", &S);
-            // print_matrix("K", &K);
 
             // Update KF states
             {
@@ -566,7 +477,6 @@ fn main() {
             udp_utils::publish(TOPICS::kf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
-    */
 
     // Correction using IMU ----------
     thread::spawn(move || {
