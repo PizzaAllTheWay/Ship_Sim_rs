@@ -59,7 +59,7 @@ fn main() {
         };
     }
 
-    spawn_logger!(forces_thrusters,    "forces_thrusters.csv");
+    spawn_logger!(thruster_control,    "thruster_control.csv");
     spawn_logger!(wind_parameters,     "wind.csv");
     spawn_logger!(current_parameters,  "current.csv");
     spawn_logger!(x,                   "x.csv");

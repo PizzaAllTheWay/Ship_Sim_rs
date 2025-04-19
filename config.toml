@@ -1,9 +1,9 @@
 [ship]
 simulation_frequency = 100.00 # [Hz]
 mass = 10000.0 # [kg]
-length = 30.0 # [m]
-radius = 10.0 # [m]
-dimensions = [10.0, 30.0] # [m] (radius, length)
+dimensions = [10.0, 30.0] # [m] (radius, length) Assume ship is a cylinder
+thruster_placement = [-15.0, 0.0, -10.0] # [m] (x, y, z) Back bottom of the ship
+thruster_rpm_max = 500 # [rpm]
 velocity_linear_max = 10.00 # [m/s] Maximum linear speed the ship can reach 
 velocity_angular_max = 0.15  # [rad/s] Maximum angular speed the ship can reach 
 x_0 = [
@@ -13,8 +13,8 @@ x_0 = [
     0.0, 0.0, 0.0, # [roll, pitch, yaw]
 ]
 u_0 = [
-    0.0, 0.0, 0.0, # [Fx, Fy, Fz]
-    0.0, 0.0, 0.0, # [Tx, Ty, Tz]
+    0.0, # [rpm] Thruster speed
+    0.0, # [rad] Thruster yaw angle
 ]
 
 [interface]
@@ -60,17 +60,17 @@ imu_mag_fsr = 6.28 # [rad] full scale resolution
 kf_pub_frequency = 100.00 # [Hz]
 # ?NOTE: Never have 0.0 in P_0, as that indicates we are 100% confident in our model from the start, this means we would not trust the measurements as the estimator would assume we already have perfect model, witch we don't
 P_0 = [
-    100.0, 100.0, 100.0, # Uncertainty: [vx, vy, vz]
-    100.0, 100.0, 100.0, # Uncertainty: [wx, wy, wz]
-    100.0, 100.0, 100.0, # Uncertainty: [x, y, z]
-    100.0, 100.0, 100.0, # Uncertainty: [roll, pitch, yaw]
+    0.01, 0.01, 0.01, # Uncertainty: [vx, vy, vz]
+    0.01, 0.01, 0.01, # Uncertainty: [wx, wy, wz]
+    0.01, 0.01, 0.01, # Uncertainty: [x, y, z]
+    0.01, 0.01, 0.01, # Uncertainty: [roll, pitch, yaw]
 ]
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
-     6.0,  6.0,  3.0, # Model trust in: [vx, vy, vz]
-    50.0, 50.0, 10.0, # Model trust in: [wx, wy, wz]
-    10.0, 10.0,  3.0, # Model trust in: [x, y, z]
-    90.0, 90.0, 40.0, # Model trust in: [roll, pitch, yaw]
+    900.06, 900.06, 900.03, # Model trust in: [vx, vy, vz]
+    900.50, 900.50, 900.10, # Model trust in: [wx, wy, wz]
+    900.10, 900.10, 900.03, # Model trust in: [x, y, z]
+    900.09, 900.09, 900.04, # Model trust in: [roll, pitch, yaw]
 ]
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [

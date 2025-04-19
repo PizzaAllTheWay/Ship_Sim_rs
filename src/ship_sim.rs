@@ -11,7 +11,7 @@ use std::fs;
 use std::str;
 
 // Library for maths
-use nalgebra::{Vector2, Vector3, Vector6};
+use nalgebra::{Vector2, Vector3};
 use std::f32::consts::PI;
 
 // Libraries for multithreading
@@ -27,6 +27,7 @@ struct ShipConfig {
     simulation_frequency: f32,
     mass: f32,
     dimensions: [f32; 2],
+    thruster_placement: [f32; 3],
     velocity_linear_max: f32,
     velocity_angular_max: f32,
     x_0: [f32; 12],
@@ -56,6 +57,7 @@ impl ODE {
         x_0: Vector12<f32>, // Initial states
         ship_mass: f32, // [kg]
         ship_dimensions: [f32; 2], // (r, l) [m]
+        thruster_placement: Vector3<f32>, // Placement of thruster on the ship in body frame [x, y, z] [m]
         velocity_linear_max: f32, // [m/s]
         velocity_angular_max: f32, // [rad/s]
 
@@ -64,6 +66,7 @@ impl ODE {
         let ship_dynamic = ship::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
+            thruster_placement,
             velocity_linear_max,
             velocity_angular_max,
         );
@@ -82,7 +85,7 @@ impl ODE {
     fn f(
         &self,
         x: &Vector12<f32>,
-        u: &Vector6<f32>,
+        u: &Vector2<f32>,
         w: &Disturbance,
     ) -> Vector12<f32> {
         // Constant vectors
@@ -94,8 +97,8 @@ impl ODE {
         let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
         let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
-        let force_b: Vector3<f32> = u.fixed_rows::<3>(0).into();  // [Fx, Fy, Fz]
-        let torque_b: Vector3<f32> = u.fixed_rows::<3>(3).into(); // [Torque in roll, pitch, yaw]
+        let thruster_rpm: f32 = u[0];
+        let thruster_angle: f32 = u[1];
 
         let w_wind_w: Vector3<f32> = w.wind; // [vx, vy, vz]
         let w_current_w: Vector3<f32> = w.current; // [vx, vy, vz]
@@ -111,8 +114,8 @@ impl ODE {
 
         // Dynamics
         let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
-            force_b,
-            torque_b,
+            thruster_rpm,
+            thruster_angle,
             v_lin_b,
             v_ang_b,
             w_wind_b,
@@ -145,24 +148,24 @@ fn main() {
     let config: Config = toml::from_str(&config_str).expect("Failed to parse TOML config");
 
     // Create shared resource to access GUI and states
-    let forces_thruster= Arc::new(RwLock::new(TOPICS::forces_thrusters::DataType::zeros()));
+    let thruster_control= Arc::new(RwLock::new(TOPICS::thruster_control::DataType::zeros()));
     let wind_speed = Arc::new(RwLock::new(TOPICS::wind_speed::DataType::zeros()));
     let current_speed = Arc::new(RwLock::new(TOPICS::current_speed::DataType::zeros()));
     // Setup (STOP) ==================================================
 
     // GET - Control Forces (START) ==================================================
-    let forces_thruster_clone = forces_thruster.clone();
+    let thruster_control_clone = thruster_control.clone();
     thread::spawn(move || {
         loop {
             // Wait for thruster forces data to arrive from gui
             // Once received format to correct datatype
-            let msg = udp_utils::subscribe(TOPICS::forces_thrusters::PORT).expect("Failed to get forces data");
+            let msg = udp_utils::subscribe(TOPICS::thruster_control::PORT).expect("Failed to get forces data");
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let forces: TOPICS::forces_thrusters::DataType = udp_utils::decode_json(json_str);
+            let control: TOPICS::thruster_control::DataType = udp_utils::decode_json(json_str);
 
             // Save thruster forces in shared resource for simulator
-            let mut forces_thruster = forces_thruster_clone.write().unwrap();
-            *forces_thruster = forces;
+            let mut thruster_control = thruster_control_clone.write().unwrap();
+            *thruster_control = control;
         }
     });
     // GET - Control Forces (STOP) ==================================================
@@ -202,7 +205,7 @@ fn main() {
     // GET - Control Forces (STOP) ==================================================
 
     // Simulate (START) ==================================================
-    let forces_thruster_clone = forces_thruster.clone();
+    let thruster_control_clone = thruster_control.clone();
     let wind_speed_clone = wind_speed.clone();
     let current_speed_clone = current_speed.clone();
     thread::spawn(move || {
@@ -212,10 +215,11 @@ fn main() {
             x, 
             config.ship.mass,
             config.ship.dimensions,
+            Vector3::<f32>::from_row_slice(&config.ship.thruster_placement),
             config.ship.velocity_linear_max,
             config.ship.velocity_angular_max,
         );   
-        let mut u: Vector6<f32>;
+        let mut u: Vector2<f32>;
 
         let mut dx: TOPICS::dx::DataType;
         let mut speed: TOPICS::speed::DataType = Vector2::<f32>::zeros();
@@ -236,7 +240,7 @@ fn main() {
 
             // Thruster forces ----------
             u = {
-                *forces_thruster_clone.read().unwrap()
+                *thruster_control_clone.read().unwrap()
             };
 
             // Disturbance ----------

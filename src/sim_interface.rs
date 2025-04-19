@@ -12,9 +12,17 @@ use std::str;
 use std::thread;
 use std::time::{Duration, Instant};
 
+// Libraries for math
+use std::f32::consts::PI;
+
 
 
 // Config data structure ----------
+#[derive(Deserialize)]
+struct ShipConfig {
+    thruster_rpm_max: f32,
+}
+
 #[derive(Deserialize)]
 struct InterfaceConfig {
     fps: f32,
@@ -28,6 +36,7 @@ struct ExternalForcesConfig {
 
 #[derive(Deserialize)]
 struct Config {
+    ship : ShipConfig,
     interface: InterfaceConfig,
     external_forces: ExternalForcesConfig,
 }
@@ -168,7 +177,7 @@ fn main() {
     // SEND - Control Forces (START) ==================================================
     let gui_state_clone = gui_state.clone();
     thread::spawn(move || {
-        let mut forces= TOPICS::forces_thrusters::DataType::zeros();
+        let mut thruster_control= TOPICS::thruster_control::DataType::zeros();
 
         let dt = 1.0/config.interface.fps; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64);
@@ -179,33 +188,43 @@ fn main() {
             // Keyboard controls logic ----------
             // Read current WASD keys
             if *gui_state_clone.key_state_w.read().unwrap() {
-                forces[0] -= 100.0; // W = Forward thrust
+                // W = Forward [rpm]
+                thruster_control[0] = config.ship.thruster_rpm_max;
+                thruster_control[1] = PI;
             }
             if *gui_state_clone.key_state_a.read().unwrap() {
-                forces[5] -= 100.0; // A = Rotate left
+                // A = Rotate left [rad]
+                thruster_control[0] = config.ship.thruster_rpm_max;
+                thruster_control[1] = -PI/2.0;
             }
             if *gui_state_clone.key_state_s.read().unwrap() {
-                forces[0] += 100.0; // S = Reverse thrust
+                // S = Reverse [rpm]
+                thruster_control[0] = config.ship.thruster_rpm_max;
+                thruster_control[1] = 0.0;
             }
             if *gui_state_clone.key_state_d.read().unwrap() {
-                forces[5] += 100.0; // D = Rotate right
+                // D = Rotate right [rad]
+                thruster_control[0] = config.ship.thruster_rpm_max;
+                thruster_control[1] = PI/2.0;
             }
             
-            // Reset force if none pressed
-            if !(*gui_state_clone.key_state_w.read().unwrap() || *gui_state_clone.key_state_s.read().unwrap()) 
+            // Reset thruster if no keys pressed
+            if !(
+                *gui_state_clone.key_state_w.read().unwrap() ||
+                *gui_state_clone.key_state_a.read().unwrap() ||
+                *gui_state_clone.key_state_s.read().unwrap() ||
+                *gui_state_clone.key_state_d.read().unwrap()
+            ) 
             {
-                forces[0] = 0.0;
-            }
-            if !(*gui_state_clone.key_state_a.read().unwrap() || *gui_state_clone.key_state_d.read().unwrap()) 
-            {
-                forces[5] = 0.0;
+                thruster_control[0] = 0.0;
+                thruster_control[1] = 0.0;
             }
 
             // Packet to JSON
-            let forces_json = udp_utils::encode_json(&forces);
+            let thruster_control_json = udp_utils::encode_json(&thruster_control);
 
             // Publish data
-            udp_utils::publish(TOPICS::forces_thrusters::PORT, forces_json.as_bytes()).expect("Failed to publish forces data");
+            udp_utils::publish(TOPICS::thruster_control::PORT, thruster_control_json.as_bytes()).expect("Failed to publish forces data");
 
             // Precise way to calculate interval
             // This way simulation is at the exact same FPS as GUI 

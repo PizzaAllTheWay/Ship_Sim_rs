@@ -10,6 +10,7 @@ use std::f32::consts::PI;
 pub struct ShipDynamics {
     pub m: f32,                // mass of the boat [kg]
     pub dimensions: [f32; 2],  // dimensions of the boat (r, l) [m]
+    pub thruster_placement: Vector3<f32>, // Placement of thruster on the ship in body frame [x, y, z] [m]
     pub I_inv: Matrix3<f32>,   // inverse moment of inertia for faster computation [1/kg*m²]
     pub v_lin_max: f32, // [m/s]
     pub v_ang_max: f32, // [rad/s]
@@ -21,6 +22,7 @@ impl ShipDynamics {
     pub fn new(
         m: f32,
         dimensions: [f32; 2],
+        thruster_placement: Vector3<f32>,
         velocity_lin_max: f32,
         velocity_ang_max: f32,
     ) -> Self {
@@ -52,6 +54,7 @@ impl ShipDynamics {
         Self {
             m,
             dimensions,
+            thruster_placement,
             I_inv,
             v_lin_max: velocity_lin_max,
             v_ang_max: velocity_ang_max,
@@ -82,17 +85,10 @@ impl ShipDynamics {
     }
 
     // Calculates linear & angular acceleration in body frame
-    // Inputs:
-    // - force_thrusters: applied force [N]
-    // - torque_thrusters: applied torque [Nm]
-    // - v_lin: body linear velocity [m/s]
-    // - v_ang: body angular velocity [rad/s]
-    // Drag: Fd = -0.5 * rho * Cd * A * v * |v|
-    // Returns: (linear accel [m/s²], angular accel [rad/s²])
     pub fn calc_accel_body(
         &self,
-        force_thrusters: Vector3<f32>,
-        torque_thrusters: Vector3<f32>,
+        thruster_rpm: f32,
+        thruster_angle: f32,
         v_lin: Vector3<f32>,
         v_ang: Vector3<f32>,
         wind: Vector3<f32>,
@@ -100,14 +96,32 @@ impl ShipDynamics {
         gravity_b: Vector3<f32>,
         pos_cg_w: Vector3<f32>,
     ) -> (Vector3<f32>, Vector3<f32>) {
+        // calculate Thruster Forces ----------
+        // Tuning parameter for how powerful the thruster is
+        let k_force = 4.5; // [N/rmp]
+
+        // Compute thrust force
+        let dir_prop = Vector3::new(thruster_angle.cos(), thruster_angle.sin(), 0.0);
+        let force_thruster = dir_prop * (k_force * thruster_rpm);
+
+        // Compute thruster torque
+        // extract only Z (yaw) component
+        // This is because roll and pitch angles have no dampening so they will oscillate
+        // Moreover because of euler angles if Z axis flips 90* in XY plane we get close to singularity
+        // This means if roll or pitch angle over 90* we get explosion in values
+        // To mitigate this we ignore roll and pitch contributions because no dampening on those angles
+        let torque_thruster_z = self.thruster_placement.cross(&force_thruster)[2];
+        let mut torque_thruster = Vector3::zeros();
+        torque_thruster[2] = -torque_thruster_z; // Flip sign to match simulation's yaw convention (right-hand rule mismatch)
+
         // Dampening ----------
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability
         let d_lin_matrix = Matrix3::new(
             0.085,  0.0,   0.0,
-              0.0,  0.4,   0.0,
+              0.0,  10000.7,   0.0,
               0.0,  0.0,  0.95,
         );
-        let d_ang: f32 = 200000.0;
+        let d_ang: f32 = 1_000_000.0;
         
         let force_dampening = (-d_lin_matrix) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
@@ -115,7 +129,7 @@ impl ShipDynamics {
         // Calculate water drag forces ----------
         // Constants
         let rho_water: f32 = 1000.0; // water density [kg/m³]
-        let c_d_lin: f32 = 0.0025; // linear drag coefficient (Must be < 1.0)
+        let c_d_lin: f32 = 0.0005; // linear drag coefficient (Must be < 1.0)
         let r = self.dimensions[0];
         let l = self.dimensions[1];
 
@@ -145,8 +159,25 @@ impl ShipDynamics {
 
         // Angular water drag
         // !NOTE: To complex, so just added extra dampening to angular momentum to simulate a simple linear relation instead
-        let c_d_ang: f32 = 10.0;
+        let c_d_ang: f32 = 10000.0;
         let torque_drag = (-c_d_ang) * v_ang;
+
+        // Calculate hydrodynamic cross coupling torque ----------
+        // Normalize vector
+        let v_lin_dir = if v_lin.norm() > 1e-3 {
+            v_lin.normalize()
+        } else {
+            Vector3::zeros()
+        };
+
+        // extract only Z (yaw) component
+        // This is because roll and pitch angles have no dampening so they will oscillate
+        // Moreover because of euler angles if Z axis flips 90* in XY plane we get close to singularity
+        // This means if roll or pitch angle over 90* we get explosion in values
+        // To mitigate this we ignore roll and pitch contributions because no dampening on those angles
+        let torque_skid_z = v_lin_dir.cross(&force_drag)[2]; 
+        let mut torque_skid = Vector3::zeros();
+        torque_skid[2] = torque_skid_z;
 
         // Calculate air drag forces ----------
         // !NOTE: Don't need it as its forces are negligible 
@@ -243,16 +274,16 @@ impl ShipDynamics {
         // Calculate subsystem forces ----------
         // x
         let mut force_x = force_dampening + force_drag;
-        let mut torque_x = torque_dampening + torque_drag;
+        let mut torque_x = torque_dampening + torque_drag + torque_skid;
         self.apply_directional_decay(&mut force_x, v_lin, self.v_lin_max, 1.0);
         self.apply_directional_decay(&mut torque_x, v_ang, self.v_ang_max, 1.0);
         force_x += force_gravity + force_buoyancy;
 
         // u
-        let mut force_u = force_thrusters;
-        let mut torque_u = torque_thrusters;
-        self.apply_directional_decay(&mut force_u, v_lin, self.v_lin_max, 5.0);
-        self.apply_directional_decay(&mut torque_u, v_ang, self.v_ang_max, 5.0);
+        let mut force_u = force_thruster;
+        let mut torque_u = torque_thruster;
+        self.apply_directional_decay(&mut force_u, v_lin, self.v_lin_max, 1.0);
+        self.apply_directional_decay(&mut torque_u, v_ang, self.v_ang_max, 1.0);
 
         // w
         let force_w = force_wind + force_current;

@@ -5,7 +5,7 @@ use ship_sim_lib::estimators::estimators_utils::{
     print_matrix,
     clamp_matrix,
 };
-use ship_sim_lib::estimators::kf::{self, Vector9, Vector12, Matrix9x9, Matrix12x12};
+use ship_sim_lib::estimators::kf::{self, Vector9, Vector12, Matrix9x9, Matrix12x12, Matrix12x2};
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::TOPICS;
@@ -21,7 +21,7 @@ use std::fs;
 use std::str;
 
 // Library for linear algebra
-use nalgebra::{Vector3, Vector6};
+use nalgebra::{Vector2, Vector3, Vector6};
 
 
 
@@ -30,10 +30,11 @@ use nalgebra::{Vector3, Vector6};
 struct ShipConfig {
     mass: f32,
     dimensions: [f32; 2],
+    thruster_placement: [f32; 3],
     velocity_linear_max: f32,
     velocity_angular_max: f32,
     x_0: [f32; 12],
-    u_0: [f32; 6],
+    u_0: [f32; 2],
 }
 
 #[derive(Deserialize)]
@@ -75,6 +76,7 @@ impl ODE {
         x_0: Vector12<f32>, // Initial states
         ship_mass: f32, // [kg]
         ship_dimensions: [f32; 2], // (r, l) [m]
+        thruster_placement: Vector3<f32>, // Placement of thruster on the ship in body frame [x, y, z] [m]
         velocity_linear_max: f32, // [m/s]
         velocity_angular_max: f32, // [m/s]
 
@@ -83,6 +85,7 @@ impl ODE {
         let ship_dynamic = ship_approx::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
+            thruster_placement,
             velocity_linear_max,
             velocity_angular_max,
         );
@@ -101,7 +104,7 @@ impl ODE {
     fn f(
         &self,
         x: &Vector12<f32>,
-        u: &Vector6<f32>,
+        u: &Vector2<f32>,
     ) -> Vector12<f32> {
         // Constant vectors
         let gravity_w = Vector3::new(0.0, 0.0, -9.81);
@@ -112,8 +115,8 @@ impl ODE {
         let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
         let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
-        let force_b: Vector3<f32> = u.fixed_rows::<3>(0).into();  // [Fx, Fy, Fz]
-        let torque_b: Vector3<f32> = u.fixed_rows::<3>(3).into(); // [Torque in roll, pitch, yaw]
+        let thruster_rpm: f32 = u[0];
+        let thruster_angle: f32 = u[1];
 
         // Inverse kinematics
         let v_lin_b = kinematics::linear_velocity_world_to_body(r_ang_w, v_lin_w);
@@ -123,8 +126,8 @@ impl ODE {
 
         // Dynamics
         let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
-            force_b,
-            torque_b,
+            thruster_rpm,
+            thruster_angle,
             v_lin_b,
             v_ang_b,
             gravity_b,
@@ -148,6 +151,79 @@ impl ODE {
 
 
 
+// Linearized system matrices ----------
+// System matrices represent how the state and input affect the *rate of change* of the system:
+// A = ∂f/∂x → how state affects state change (Jacobian of f w.r.t. x)
+// B = ∂f/∂u → how input affects state change (Jacobian of f w.r.t. u)
+//
+// NOTE: f(x, u) is a second-order ODE, meaning acceleration depends on velocity and input.
+//       However, the Kalman Filter requires a *first-order* system in the form:
+//           x_dot = A * x + B * u
+//       So we split the system into 12 state variables like so:
+//           [v_lin, v_ang, pos_lin, pos_ang]
+//       This structure leads to the following block structure of A:
+//
+//       A = [ ∂a/∂v   ∂a/∂ω     0        0
+//             ∂α/∂v   ∂α/∂ω     0        0
+//               I       0       0        0
+//               0       I       0        0 ]
+//
+// Explanation:
+//   - Top-left 6x6 block: partial derivatives of linear/angular accelerations w.r.t. velocities (∂a/∂v, ∂a/∂ω)
+//   - Bottom-left 6x6 block: identity matrices to convert velocities to positions over time (∂pos/∂vel = I)
+//   - Top-right and bottom-right blocks are zero because accel doesn’t directly depend on positions or angles,
+//     and positions don’t directly affect other positions or angles in a single time step.
+//
+// Similarly, B is structured like:
+//       B = [ ∂a/∂u
+//             ∂α/∂u
+//              0
+//              0 ]
+//
+// Since only velocities change due to control inputs (u), positions and angles don’t directly respond to u.
+#[allow(non_snake_case)]
+pub fn linearize_system<Fx, Fu>(
+    f_x: Fx,
+    f_u: Fu,
+    x: &Vector12<f32>,
+    u: &Vector2<f32>,
+    dx: f32,
+    du: f32,
+) -> (Matrix12x12<f32>, Matrix12x2<f32>)
+where
+    Fx: Fn(&Vector12<f32>) -> Vector12<f32>,
+    Fu: Fn(&Vector2<f32>) -> Vector12<f32>,
+{
+    let mut df_dx: Matrix12x12<f32> = numerical_jacobian(&f_x, x, dx);
+    let df_du: Matrix12x2<f32> = numerical_jacobian(&f_u, u, du);
+
+    // Construct A smartly: 
+    // A = [∂a/∂v ∂a/∂w 0 0;
+    //      ∂α/∂v ∂α/∂w 0 0;
+    //      I     0     0 0;
+    //      0     I     0 0]
+    let mut A = Matrix12x12::<f32>::zeros();
+    A.fixed_view_mut::<3, 3>(0, 0).copy_from(&df_dx.fixed_view_mut::<3, 3>(0, 0)); // ∂a/∂v
+    A.fixed_view_mut::<3, 3>(0, 3).copy_from(&df_dx.fixed_view_mut::<3, 3>(0, 3)); // ∂a/∂ω
+    A.fixed_view_mut::<3, 3>(3, 0).copy_from(&df_dx.fixed_view_mut::<3, 3>(3, 0)); // ∂α/∂v
+    A.fixed_view_mut::<3, 3>(3, 3).copy_from(&df_dx.fixed_view_mut::<3, 3>(3, 3)); // ∂α/∂ω
+    A.fixed_view_mut::<3, 3>(6, 0).copy_from(&nalgebra::Matrix3::identity());    // dx/dv
+    A.fixed_view_mut::<3, 3>(9, 3).copy_from(&nalgebra::Matrix3::identity());    // dθ/dω
+
+    // Construct B smartly:
+    // B = [∂a/∂u;
+    //      ∂α/∂u;
+    //      0;
+    //      0]
+    let mut B = Matrix12x2::<f32>::zeros();
+    B.fixed_rows_mut::<6>(0).copy_from(&df_du.fixed_rows::<6>(0)); // upper half
+    // lower half remains zero
+
+    (A, B)
+}
+
+
+
 // Transformation functions for sensors ----------
 // measurements from estimate (~z) = h(x)*x
 // estimate from measurements (~x) = h(x)⁽⁻¹⁾*z
@@ -161,9 +237,14 @@ fn h_gnss(
     let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // position in world
     let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // orientation in world
 
+    // Inverse Kinematics
+    let r_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * r_lin_w;
+
     // Kinematics
-    let r_antenna1_w: Vector3<f32> = r_lin_w + kinematics::r_body_to_world(r_ang_w) * antenna1_placement;
-    let r_antenna2_w: Vector3<f32> = r_lin_w + kinematics::r_body_to_world(r_ang_w) * antenna2_placement;
+    let r_antenna1_b: Vector3<f32> = r_lin_b + antenna1_placement;
+    let r_antenna2_b: Vector3<f32> = r_lin_b + antenna2_placement;
+    let r_antenna1_w = kinematics::r_body_to_world(r_ang_w) * r_antenna1_b;
+    let r_antenna2_w = kinematics::r_body_to_world(r_ang_w) * r_antenna2_b;
 
     // Save transformed vector
     let mut y = Vector9::<f32>::zeros();
@@ -175,6 +256,16 @@ fn h_gnss(
     return y;
 }
 
+// Limits the angles to stay in -pi to pi
+// This is VERY important because angular position will grow to 100xpi over time
+// This then when linearizing gives transforms of matrix H and even A and B VERY EXTREME because we linearized X-X
+// To mitigate most of this we wrap angles to -pi to pi to make sense :)
+fn wrap_angle(angle: f32) -> f32 {
+    //(angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI) - std::f32::consts::PI
+
+    (angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI) - std::f32::consts::PI
+}
+
 
 
 fn main() {
@@ -184,24 +275,24 @@ fn main() {
     let config: Config = toml::from_str(&config_str).expect("Failed to parse TOML config");
 
     // Create shared resources for estimators
-    let forces_thruster= Arc::new(RwLock::new(TOPICS::forces_thrusters::DataType::zeros()));
+    let thruster_control= Arc::new(RwLock::new(TOPICS::thruster_control::DataType::zeros()));
     // Setup (STOP) ==================================================
 
 
 
     // GET - Control Forces (START) ==================================================
-    let forces_thruster_clone = forces_thruster.clone();
+    let thruster_control_clone = thruster_control.clone();
     thread::spawn(move || {
         loop {
             // Wait for thruster forces data to arrive from gui
             // Once received format to correct datatype
-            let msg = udp_utils::subscribe(TOPICS::forces_thrusters::PORT).expect("Failed to get forces data");
+            let msg = udp_utils::subscribe(TOPICS::thruster_control::PORT).expect("Failed to get forces data");
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let forces: TOPICS::forces_thrusters::DataType = udp_utils::decode_json(json_str);
+            let control: TOPICS::thruster_control::DataType = udp_utils::decode_json(json_str);
 
             // Save thruster forces in shared resource for simulator
-            let mut forces_thruster = forces_thruster_clone.write().unwrap();
-            *forces_thruster = forces;
+            let mut thruster_control = thruster_control_clone.write().unwrap();
+            *thruster_control = control;
         }
     });
     // GET - Control Forces (STOP) ==================================================
@@ -210,47 +301,54 @@ fn main() {
 
     // Kalman Filter (START) ==================================================
     // Initialize Shared states for KF ----------
+    let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
+    #[allow(non_snake_case)]
+    let P_0_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.P_0);
+    #[allow(non_snake_case)]
+    let P_0: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&P_0_vector);
     let kf = kf::SharedState::default();
+
     {
-        let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
-        let mut x_est = kf.x_est.write().unwrap();
-        *x_est = x_0;
+        let mut x_est_post = kf.x_est_post.write().unwrap();
+        *x_est_post = x_0;
     }
     #[allow(non_snake_case)]
     {
-        let P_0_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.P_0);
-        let P_0: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&P_0_vector);
-        let mut P = kf.P.write().unwrap();
-        *P = P_0;
+        
+        let mut P_post = kf.P_post.write().unwrap();
+        *P_post = P_0;
+    }
+    {
+        let mut x_est_pri = kf.x_est_pri.write().unwrap();
+        *x_est_pri = x_0;
+    }
+    #[allow(non_snake_case)]
+    {
+        
+        let mut P_pri = kf.P_pri.write().unwrap();
+        *P_pri = P_0;
     }
 
     // Predict using linearized state space model ----------
     let kf_clone = kf.clone();
-    let forces_thruster_clone = forces_thruster.clone();
+    let thruster_control_clone = thruster_control.clone();
     #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
         // Calculate interval for KF Estimate publishing rate
-        let mut dt = 1.0/config.estimators.kf_pub_frequency; // [s]
+        let dt = 1.0/config.estimators.kf_pub_frequency; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64); // [ms]
 
         // Get initial states
         let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
-        let u_0: Vector6<f32> = Vector6::<f32>::from_row_slice(&config.ship.u_0);
+        let u_0: Vector2<f32> = Vector2::<f32>::from_row_slice(&config.ship.u_0);
 
         // Get linearized system matrixes
-        // System matrixes are just system change rate:
-        // A: How state affects state change
-        // B: How input affects state change
-        // These can be found by calculating jacobian of the system:
-        // A = df/dx
-        // B = df/du
-        // Since we have a Normal KF, A and B stay stationary around one work point
-        // Linearized around x0 and u0 
         let ode: ODE = ODE::new(
             x_0, 
             config.ship.mass,
             config.ship.dimensions,
+            Vector3::<f32>::from_row_slice(&config.ship.thruster_placement),
             config.ship.velocity_linear_max,
             config.ship.velocity_angular_max,
         );
@@ -258,9 +356,9 @@ fn main() {
         let x_ref = x_0.clone();
         let u_ref = u_0.clone();
         let f_x = |x: &Vector12<f32>| ode.f(x, &u_ref);
-        let f_u = |u: &Vector6<f32>| ode.f(&x_ref, u);
-        let A = numerical_jacobian(&f_x, &x_0, 1e-4);
-        let B = numerical_jacobian(&f_u, &u_0, 1e-4);
+        let f_u = |u: &Vector2<f32>| ode.f(&x_ref, u);
+
+        let (A, B) = linearize_system(f_x, f_u, &x_0, &u_0, 1e-4, 1e-4);
 
         println!("#====================================================================================================#");
         println!("Kalman Filter:");
@@ -278,41 +376,69 @@ fn main() {
             let start_t = Instant::now();
 
             // Get control input states
-            let u_prev = *forces_thruster_clone.read().unwrap();
+            let u_prev = *thruster_control_clone.read().unwrap();
 
             // Get KF states
-            let x_est_prev = *kf_clone.x_est.read().unwrap();
-            let P_prev = *kf_clone.P.read().unwrap();
+            let mut x_est_post_prev = *kf_clone.x_est_post.read().unwrap();
+            let P_post_prev = *kf_clone.P_post.read().unwrap();
+
+            // ! DEBUG
+            // let x_est_post_prev = x_est_post_prev + dt * ode.f(&x_est_post_prev, &u_prev);
+            // println!("x: {:?}", x_est_post_prev);
+            // print_matrix("A", &A);
+            // print_matrix("B", &B);
+            // {
+            //     let mut x_est = kf_clone.x_est_post.write().unwrap();
+            //     *x_est = x_est_post_prev;
+            // }
+            // let kf_data: TOPICS::kf::DataType = x_est_post_prev;
+            // let kf_data_json = udp_utils::encode_json(&kf_data);
+            // udp_utils::publish(TOPICS::kf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
             
             // !REMOVE!????
-            let A = numerical_jacobian(&f_x, &x_est_prev, 1e-4);
-            let B = numerical_jacobian(&f_u, &u_prev, 1e-4);
+            x_est_post_prev[9] = wrap_angle(x_est_post_prev[9]);
+            x_est_post_prev[10] = wrap_angle(x_est_post_prev[10]);
+            x_est_post_prev[11] = wrap_angle(x_est_post_prev[11]);
+            // let A = numerical_jacobian(&f_x, &x_est_post_prev, 1e-4);
+            // let B = numerical_jacobian(&f_u, &u_prev, 1e-4);
+            let (A, B) = linearize_system(f_x, f_u, &x_est_post_prev, &u_prev, 1e-4, 1e-4);
+            
+            println!("x: {:?}", x_est_post_prev);
+            println!("u: {:?}", u_prev);
+            print_matrix("A", &A);
+            print_matrix("B", &B);
             
             // Predict
             let (x_est_priori, P_priori) = kf::predict(
                 dt, 
-                x_est_prev, 
+                x_est_post_prev, 
                 u_prev, 
-                P_prev, 
+                P_post_prev, 
                 A, 
                 B, 
                 Q
             );
 
-            //println!("x: {:?}", x_est_prev);
-
             // Clamp estimate and P because it has a tendency to blow up in certain fields
-            let x_est_priori = x_est_priori.map(|v| v.clamp(-1e3, 1e3));
+            // Also the angular position must be limited to -pi to pi, else it might effect linearized H and even A and B matrices
+            // By keeping it contained we don't have to worry about estimates suddenly going 100x bigger because the angle in linearization step explodes to 100x as well
+            let mut x_est_priori = x_est_priori.map(|v| v.clamp(-1e3, 1e3));
+            x_est_priori[9] = wrap_angle(x_est_priori[9]);
+            x_est_priori[10] = wrap_angle(x_est_priori[10]);
+            x_est_priori[11] = wrap_angle(x_est_priori[11]);
             let P_priori = clamp_matrix(P_priori, 1e6);
+
+            // ! DEBUG
+            println!("x estimated: {:?}", x_est_priori);
 
             // Update KF states
             {
-                let mut x_est = kf_clone.x_est.write().unwrap();
-                *x_est = x_est_priori;
+                let mut x_est_pri = kf_clone.x_est_pri.write().unwrap();
+                *x_est_pri = x_est_priori;
             }
             {
-                let mut P = kf_clone.P.write().unwrap();
-                *P = P_priori;
+                let mut P_pri = kf_clone.P_pri.write().unwrap();
+                *P_pri = P_priori;
             }
 
             // Publish KF data
@@ -329,6 +455,7 @@ fn main() {
         }
     });
 
+    /*
     // Correction using GNSS ----------
     let kf_clone = kf.clone();
     #[allow(non_snake_case)]
@@ -372,47 +499,74 @@ fn main() {
 
             // KF States
             let z = gnss;
-            let x_est_priori = *kf_clone.x_est.read().unwrap();
-            let P_priori = *kf_clone.P.read().unwrap();
+            let mut x_est_pri = *kf_clone.x_est_pri.read().unwrap();
+            let P_pri = *kf_clone.P_pri.read().unwrap();
 
             // Correction
             // !REMOVE????
-            let H = numerical_jacobian(&h_fn, &x_est_priori, 1e-4);
+            // let mut x_est_post = x_0;
+            // x_est_post[9] = wrap_angle(x_est_post[9]);
+            // x_est_post[10] = wrap_angle(x_est_post[10]);
+            // x_est_post[11] = wrap_angle(x_est_post[11]);
+            // let H = numerical_jacobian(&h_fn, &x_est_post, 1e-4);
+            //print_matrix("H", &H);
+
+            x_est_pri[9] = wrap_angle(x_est_pri[9]);
+            x_est_pri[10] = wrap_angle(x_est_pri[10]);
+            x_est_pri[11] = wrap_angle(x_est_pri[11]);
+            let H = numerical_jacobian(&h_fn, &x_est_pri, 1e-4);
+            print_matrix("H", &H);
 
             let (
-                x_est,
-                P,
+                x_est_posterior,
+                P_posterior,
                 y,
                 S,
                 K,
             ) = kf::correct(
+                |x| h_gnss(
+                    x.clone(),
+                    Vector3::from(config.sensors.gnss_antenna1_placement),
+                    Vector3::from(config.sensors.gnss_antenna2_placement),
+                ),
                 z,
-                x_est_priori,
-                P_priori,
+                x_est_pri,
+                P_pri,
                 H,
                 R,
             );
 
             // Clamp estimate and P because it has a tendency to blow up in certain fields
-            let x_est = x_est.map(|v| v.clamp(-1e3, 1e3));
-            let P_priori = clamp_matrix(P_priori, 1e6);
+            // Also the angular position must be limited to -pi to pi, else it might effect linearized H and even A and B matrices
+            // By keeping it contained we don't have to worry about estimates suddenly going 100x bigger because the angle in linearization step explodes to 100x as well
+            let mut x_est_posterior = x_est_posterior.map(|v| v.clamp(-1e3, 1e3));
+            x_est_posterior[9] = wrap_angle(x_est_posterior[9]);
+            x_est_posterior[10] = wrap_angle(x_est_posterior[10]);
+            x_est_posterior[11] = wrap_angle(x_est_posterior[11]);
+            let P_posterior = clamp_matrix(P_posterior, 1e6);
+
+            // ! DEBUG:
+            // print_matrix("P_posterior", &P_posterior);
+            // print_matrix("S", &S);
+            // print_matrix("K", &K);
 
             // Update KF states
             {
-                let mut x_est_priori = kf_clone.x_est.write().unwrap();
-                *x_est_priori = x_est;
+                let mut x_est_post = kf_clone.x_est_post.write().unwrap();
+                *x_est_post = x_est_posterior;
             }
             {
-                let mut P_priori = kf_clone.P.write().unwrap();
-                *P_priori = P;
+                let mut P_post = kf_clone.P_post.write().unwrap();
+                *P_post = P_posterior;
             }
 
             // Publish KF data
-            let kf_data: TOPICS::kf::DataType = x_est;
+            let kf_data: TOPICS::kf::DataType = x_est_posterior;
             let kf_data_json = udp_utils::encode_json(&kf_data);
             udp_utils::publish(TOPICS::kf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
+    */
 
     // Correction using IMU ----------
     thread::spawn(move || {

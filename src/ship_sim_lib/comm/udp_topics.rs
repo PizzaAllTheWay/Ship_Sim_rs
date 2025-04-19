@@ -1,5 +1,5 @@
 // src/shared_data/mod.rs
-use nalgebra::{Vector2, Vector3, Vector6, SVector, SMatrix};
+use nalgebra::{Vector2, Vector3, SVector, SMatrix};
 use std::fmt::Debug;
 
 // =====================
@@ -28,14 +28,13 @@ pub struct TopicConfig<T> {
 pub mod TOPICS {
     use super::*;
 
-    // Data Type [Vector6<f32>]:
-    // [Fx, Fy, Fz]
-    // [Torque in roll, pitch, yaw]
-    pub mod forces_thrusters {
+    // Data Type [Vector2<f32>]:
+    // [rpm, angle]
+    pub mod thruster_control {
         use super::*;
-        use Vector6;
+        use Vector2;
         pub const PORT: u16 = 5550;
-        pub type DataType = Vector6<f32>;
+        pub type DataType = Vector2<f32>;
     }
 
     // Data Type [Vector3<f32>]:

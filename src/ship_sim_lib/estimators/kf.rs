@@ -1,5 +1,5 @@
 // Library for maths
-use nalgebra::{Vector6, SMatrix, SVector};
+use nalgebra::{Vector2, SVector, SMatrix, DMatrix};
 
 // Library for multithreading
 use std::sync::{Arc, RwLock};
@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock};
 pub type Vector9<T> = SVector<T, 9>;
 pub type Vector12<T> = SVector<T, 12>;
 pub type Matrix9x9<T> = SMatrix::<T, 9, 9>;
-pub type Matrix12x6<T> = SMatrix::<T, 12, 6>;
+pub type Matrix12x2<T> = SMatrix::<T, 12, 2>;
 pub type Matrix9x12<T> = SMatrix::<T, 9, 12>;
 pub type Matrix12x9<T> = SMatrix::<T, 12, 9>;
 pub type Matrix12x12<T> = SMatrix::<T, 12, 12>;
@@ -19,8 +19,11 @@ pub type Matrix12x12<T> = SMatrix::<T, 12, 12>;
 #[allow(non_snake_case)]
 #[derive(Clone, Default)]
 pub struct SharedState {
-    pub x_est: Arc<RwLock<Vector12<f32>>>,
-    pub P: Arc<RwLock<Matrix12x12<f32>>>,
+    pub x_est_post: Arc<RwLock<Vector12<f32>>>,
+    pub P_post: Arc<RwLock<Matrix12x12<f32>>>,
+
+    pub x_est_pri: Arc<RwLock<Vector12<f32>>>,
+    pub P_pri: Arc<RwLock<Matrix12x12<f32>>>,
 }
 
 
@@ -30,52 +33,76 @@ pub struct SharedState {
 
 // ! DELETE LATER?
 
-/// Max allowed combined size (adjust if needed)
-const MAX_SIZE: usize = 24;
+#[allow(non_snake_case)]
+fn expm(A: DMatrix<f32>) -> DMatrix<f32> {
+    let norm = A.norm();
+    let maxnorm = 5.4;
 
-/// Compile-time assertion helper
-pub struct ConstAssert<const CHECK: bool>;
-pub trait IsTrue {}
-impl IsTrue for ConstAssert<true> {}
+    let (s, A_scaled) = if norm > maxnorm {
+        let s = (norm / maxnorm).log2().ceil() as u32;
+        let scale = 1.0 / (2.0f32).powi(s as i32);
+        (s, A * scale)
+    } else {
+        (0, A)
+    };
 
-pub fn discretize_system<const N: usize, const M: usize>(
-    A: SMatrix<f32, N, N>,
-    B: SMatrix<f32, N, M>,
-    dt: f32,
-    terms: usize,
-) -> (SMatrix<f32, N, N>, SMatrix<f32, N, M>) {
-    const NM: usize = 12 + 6; // <--- Replace with N + M when fixed size known
-    // OR: use associated consts via traits if you want generic solution (needs more boilerplate)
+    let A2 = &A_scaled * &A_scaled;
+    let A4 = &A2 * &A2;
+    let A6 = &A2 * &A4;
 
-    let mut aug = SMatrix::<f32, NM, NM>::zeros();
-    aug.fixed_view_mut::<N, N>(0, 0).copy_from(&A);
-    aug.fixed_view_mut::<N, M>(0, N).copy_from(&B);
+    let I = DMatrix::identity(A_scaled.nrows(), A_scaled.ncols());
 
-    let mut exp_aug = matrix_exponential::<NM>(aug, dt, terms);
-    let F_d = exp_aug.fixed_view_mut::<N, N>(0, 0).into_owned();
-    let B_d = exp_aug.fixed_view_mut::<N, M>(0, N).into_owned();
+    let u = &A_scaled * (&A6 * 0.000000025 + &A4 * 0.000001 + &A2 * 0.0002 + &I);
+    let v = &A6 * 0.000000025 + &A4 * 0.000001 + &A2 * 0.0002 - &I;
 
-    (F_d, B_d)
-}
+    let numer = &u + &v;
+    let denom = &u - &v;
 
-/// Generic matrix exponential using truncated Taylor series.
-pub fn matrix_exponential<const N: usize>(
-    a: SMatrix<f32, N, N>,
-    dt: f32,
-    terms: usize,
-) -> SMatrix<f32, N, N> {
-    let mut result = SMatrix::<f32, N, N>::identity();
-    let mut term = SMatrix::<f32, N, N>::identity();
-    let mut factorial = 1.0;
+    let mut expA = denom.try_inverse().unwrap() * numer;
 
-    for i in 1..terms {
-        term = term * (dt * a);
-        factorial *= i as f32;
-        result += term / factorial;
+    for _ in 0..s {
+        expA = &expA * &expA;
     }
 
-    result
+    expA
 }
+
+#[allow(non_snake_case)]
+fn discretize_ab_zoh<const N: usize, const M: usize>(
+    A: &SMatrix<f32, N, N>,
+    B: &SMatrix<f32, N, M>,
+    dt: f32,
+) -> (SMatrix<f32, N, N>, SMatrix<f32, N, M>) {
+    // Create dynamic matrix for augmented system
+    let mut AB_aug = DMatrix::<f32>::zeros(N + M, N + M);
+
+    let A_d = DMatrix::from_row_slice(N, N, A.as_slice());
+    let B_d = DMatrix::from_row_slice(N, M, B.as_slice());
+
+    AB_aug.view_mut((0, 0), (N, N)).copy_from(&A_d);
+    AB_aug.view_mut((0, N), (N, M)).copy_from(&B_d);
+
+
+    let AB_exp = expm(AB_aug * dt); // your custom expm() must also support DMatrix
+
+    // Extract slices and convert back to SMatrix
+    let mut Ad = SMatrix::<f32, N, N>::zeros();
+    for i in 0..N {
+        for j in 0..N {
+            Ad[(i, j)] = AB_exp[(i, j)];
+        }
+    }
+
+    let mut Bd = SMatrix::<f32, N, M>::zeros();
+    for i in 0..N {
+        for j in 0..M {
+            Bd[(i, j)] = AB_exp[(i, j + N)];
+        }
+    }
+
+    (Ad, Bd)
+}
+
 
 // ! DELETE LATER?
 
@@ -89,11 +116,11 @@ pub fn matrix_exponential<const N: usize>(
 #[allow(non_snake_case)]
 pub fn predict(
     dt: f32,
-    x_est_prev: Vector12<f32>,
-    u_prev: Vector6<f32>,
-    P_prev: Matrix12x12<f32>,
+    x_est_post_prev: Vector12<f32>,
+    u_prev: Vector2<f32>,
+    P_post_prev: Matrix12x12<f32>,
     A: Matrix12x12<f32>,
-    B: Matrix12x6<f32>,
+    B: Matrix12x2<f32>,
     Q: Matrix12x12<f32>,
 ) -> (Vector12<f32>, Matrix12x12<f32>) {
     // Get discretized state matrixes
@@ -113,11 +140,16 @@ pub fn predict(
     // u[k-1]: Previous control input
     // F_d: Discrete state transition matrix
     // B_d: Discrete control input matrix
-    // let F_d: Matrix12x12<f32> = Matrix12x12::identity() + dt*A;
-    // let B_d: Matrix12x6<f32> = dt*B;
+
+
+
+
+    
+    // ?let F_d: Matrix12x12<f32> = Matrix12x12::identity() + dt*A;
+    // ?let B_d: Matrix12x6<f32> = dt*B;
 
     //! DELETE LATER?
-    let (F_d, B_d) = discretize_system::<12, 6>(A, B, dt, 10);
+    let (F_d, B_d) = discretize_ab_zoh::<12, 2>(&A, &B, dt);
 
 
 
@@ -125,7 +157,7 @@ pub fn predict(
 
 
     // Calculate estimate based ONLY on state
-    let x_est_priori: Vector12<f32> = F_d*x_est_prev + B_d*u_prev;
+    let x_est_pri: Vector12<f32> = F_d*x_est_post_prev + B_d*u_prev;
 
     // Calculate state uncertainty
     // We must calculate how uncertain we are with the estimate using only model to estimate
@@ -137,19 +169,20 @@ pub fn predict(
     // Q: Trust matrix for our model, each diagonal value represents how much we trust that model is correct on that particular state
     //      Q << 1 => Trust the model A LOT
     //      Q >> 1 => DON'T trust the model that much
-    let P_priori: Matrix12x12<f32> = F_d*P_prev*F_d.transpose() + Q;
+    let P_pri: Matrix12x12<f32> = F_d*P_post_prev*F_d.transpose() + Q;
 
     // Return the estimate and the uncertainty
-    return (x_est_priori, P_priori);
+    return (x_est_pri, P_pri);
 }
 
 
 
 #[allow(non_snake_case)]
-pub fn correct(
+pub fn correct<F>(
+    h_fn: F,
     z: Vector9<f32>,
-    x_est_priori: Vector12<f32>,
-    P_priori: Matrix12x12<f32>,
+    x_est_pri: Vector12<f32>,
+    P_pri: Matrix12x12<f32>,
     H: Matrix9x12<f32>,
     R: Matrix9x9<f32>,
 ) -> (
@@ -158,7 +191,10 @@ pub fn correct(
     Vector9<f32>,
     Matrix9x9<f32>,
     Matrix12x9<f32>,
-){
+)
+where
+    F: Fn(&Vector12<f32>) -> Vector9<f32>,
+{
     // Calculate Innovation Residual
     // Fist check if what model estimated and what was measured is the same
     // 99.999% of the time they are not the same
@@ -172,7 +208,16 @@ pub fn correct(
     // z[k]: Current Measurement
     // H: measurement transform matrix, transforms estimate to measurement space
     // x_est_priori[k]: Current estimate using ONLY model to predict next states
-    let y: Vector9<f32> = z - H*x_est_priori;
+    let y: Vector9<f32> = z - H*x_est_pri;
+    
+    // ! REMOVE?????
+    let y: Vector9<f32> = z - h_fn(&x_est_pri);
+
+    // ! DEBUGGING
+    // println!("predicted state = {:?}", x_est_pri);
+    // println!("predicted measurement = {:?}", H*x_est_pri);
+    // println!("measured = {:?}", z);
+    // println!("innovation residual = {:?}", y);
 
     // Calculate Innovation Covariance
     // Just like with estimate uncertainty prior and post measurement, so does measurement have some uncertainty attached to them
@@ -184,7 +229,7 @@ pub fn correct(
     // R: Uncertainty from sensor (Found by taking measurements of the sensor and getting variance of the different measurement states)
     //      R << 1 => Trust the measurements A LOT
     //      R >> 1 => DON'T trust the measurements that much
-    let S: Matrix9x9<f32> = H*P_priori*H.transpose() + R;
+    let S: Matrix9x9<f32> = H*P_pri*H.transpose() + R;
 
     // Calculate Kalman Gain
     // Now we know from before hand, estimate uncertainty BEFORE measurement (ie only estimate using model x_est_priori[k])
@@ -200,14 +245,14 @@ pub fn correct(
     //
     // K[k]: Current Kalman Gain, tells how much we must reduce/increase Innovation Residual to get perfect blend between Estimate and Measurement
     //let S_inv: Matrix9x9<f32> = S.try_inverse().expect("Matrix S is not invertible");
-    let S_inv: Matrix9x9<f32> = S.pseudo_inverse(1e-6).unwrap();
-    let K: Matrix12x9<f32> = P_priori*H.transpose()*S_inv;
+    let S_inv: Matrix9x9<f32> = S.try_inverse().unwrap();
+    let K: Matrix12x9<f32> = P_pri*H.transpose()*S_inv;
 
     // Correct estimate using model AND measurement
     // To know how much to subtract/add from estimate priori, we must utilize kalman gain on Innovation Residual
     // This will give optimal balance of how much to add to each estimate prior to get a good balance between estimate and measurement
     // x_est[k] = x_est_priori[k] - K[k]*y[k]
-    let x_est: Vector12<f32> = x_est_priori - K*y;
+    let x_est: Vector12<f32> = x_est_pri - K*y;
 
     // Correct Estimate Uncertainty
     // Before we finish, we just corrected estimate
@@ -219,7 +264,7 @@ pub fn correct(
     // P[k] = (I - K[k]*H)*P_priori[k]
     //
     // P[k]: Current state uncertainty AFTER measurements/correction
-    let P: Matrix12x12<f32> = (Matrix12x12::identity() - K*H)*P_priori;
+    let P: Matrix12x12<f32> = (Matrix12x12::identity() - K*H)*P_pri;
 
     // Return results
     return (x_est, P, y, S, K);
