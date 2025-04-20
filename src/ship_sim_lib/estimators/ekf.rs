@@ -1,5 +1,5 @@
 // Library for maths
-use nalgebra::{Vector2, SVector, SMatrix, DMatrix};
+use nalgebra::{SVector, SMatrix, DMatrix};
 
 // Library for multithreading
 use std::sync::{Arc, RwLock};
@@ -31,35 +31,144 @@ pub struct SharedState {
 
 
 
-// ! DELETE LATER?
 
+
+
+
+
+// Numerically compute the Jacobian matrix of a function `f` at a point `x`
+//
+// # Parameters:
+// - `f`: A function or closure that maps an N-dimensional input vector to an M-dimensional output vector, i.e., `f: ℝⁿ → ℝᵐ`
+// - `x`: The point at which to evaluate the Jacobian (∂f/∂x), given as a vector of size N
+// - `epsilon`: A small number used for symmetric finite difference approximation
+//
+// # Returns:
+// - Jacobian matrix of size M×N representing partial derivatives of each output dimension wrt each input dimension:
+//     J[i, j] ≈ ∂f_i / ∂x_j
+//
+// # Method:
+// Uses central difference formula for each variable:
+//     ∂f/∂x ≈ (f(x+ε) - f(x-ε)) / (2ε)
+//
+// This is general-purpose, works on any differentiable function that takes in a static `SVector`
+// and returns another `SVector`.
+pub fn numerical_jacobian<const N: usize, const M: usize, F>(
+    f: &F,
+    x: &SVector<f32, N>,
+    epsilon: f32,
+) -> SMatrix<f32, M, N>
+where
+    F: Fn(&SVector<f32, N>) -> SVector<f32, M>,
+{
+    // Initialize MxN zero matrix to hold the result
+    #[allow(non_snake_case)]
+    let mut J = SMatrix::<f32, M, N>::zeros();
+
+    // Loop through each input variable x_i
+    for i in 0..N {
+        // Copy current state, perturb one component
+        let mut x_plus = *x;
+        let mut x_minus = *x;
+
+        // Apply symmetric perturbation to i-th component
+        x_plus[i] += epsilon;
+        x_minus[i] -= epsilon;
+
+        // Evaluate function at both perturbed points
+        let f_plus = f(&x_plus);
+        let f_minus = f(&x_minus);
+
+        // Finite difference approximation of partial derivatives for column i
+        let diff = (f_plus - f_minus) / (2.0 * epsilon);
+
+        // Set the i-th column of Jacobian to the computed gradient vector
+        J.set_column(i, &diff);
+    }
+
+    // Return full Jacobian matrix
+    J
+}
+
+
+
+// Linearized system ----------
+/// Linearize a nonlinear system around the given operating point (x, u)
+/// Returns Jacobians A = ∂f/∂x and B = ∂f/∂u in the form required for Kalman Filters.
+///
+/// Why we linearize:
+/// Kalman Filters (especially EKF) require a linear approximation of the nonlinear dynamics f(x, u).
+/// We do this by computing Jacobians:
+/// - A = ∂f/∂x → describes how small changes in state affect the rate of change of the state.
+/// - B = ∂f/∂u → describes how small changes in input affect the rate of change of the state.
+///
+/// These matrices allow linear propagation of uncertainty and prediction of future state distributions.
+///
+/// Assumes system is structured as:
+///     x = [v_lin; v_ang; pos_lin; pos_ang] with dimension NX = 12
+///     u = [rpm, angle] with dimension NU = 2
+#[allow(non_snake_case)]
+pub fn linearize_system<F, const NX: usize, const NU: usize>(
+    f: &F,                                 // full nonlinear dynamics function f(x, u)
+    x: &SVector<f32, NX>,                // state vector (linearization point)
+    u: &SVector<f32, NU>,                // input vector (linearization point)
+    dx: f32,                             // small perturbation for numerical derivative w.r.t. x
+    du: f32,                             // small perturbation for numerical derivative w.r.t. u
+) -> (SMatrix<f32, NX, NX>, SMatrix<f32, NX, NU>)
+where
+    F: Fn(&SVector<f32, NX>, &SVector<f32, NU>) -> SVector<f32, NX>,
+{
+    // Create closures for fixed u and x
+    let f_x = |x_: &SVector<f32, NX>| f(x_, u);        // f(x) with u fixed
+    let f_u = |u_: &SVector<f32, NU>| f(x, u_);        // f(u) with x fixed
+
+    // Compute Jacobian A: how state affects its own rate of change (∂f/∂x)
+    let df_dx: SMatrix<f32, NX, NX> = numerical_jacobian(&f_x, x, dx);
+
+    // Compute Jacobian B: how control inputs affect state rate of change (∂f/∂u)
+    let df_du: SMatrix<f32, NX, NU> = numerical_jacobian(&f_u, u, du);
+
+    (df_dx, df_du)
+}
+
+// Exponential matrix ----------
+// Approximates the matrix exponential using Padé approximation with scaling and squaring
+// Used for discretizing continuous-time systems
 #[allow(non_snake_case)]
 fn expm(A: DMatrix<f32>) -> DMatrix<f32> {
+    // Compute matrix norm to determine if scaling is needed
     let norm = A.norm();
-    let maxnorm = 5.4;
+    let maxnorm = 5.4; // empirically chosen threshold for scaling stability
 
+    // Apply scaling if norm too large to avoid overflow/instability in polynomial approximation
     let (s, A_scaled) = if norm > maxnorm {
-        let s = (norm / maxnorm).log2().ceil() as u32;
-        let scale = 1.0 / (2.0f32).powi(s as i32);
+        let s = (norm / maxnorm).log2().ceil() as u32; // compute scaling factor
+        let scale = 1.0 / (2.0f32).powi(s as i32);      // 2^-s
         (s, A * scale)
     } else {
         (0, A)
     };
 
+    // Compute powers of A_scaled needed for Padé approximation
     let A2 = &A_scaled * &A_scaled;
     let A4 = &A2 * &A2;
     let A6 = &A2 * &A4;
 
+    // Identity matrix for dimension matching
     let I = DMatrix::identity(A_scaled.nrows(), A_scaled.ncols());
 
+    // Compute numerator and denominator of [Pade(6,6)] rational approximation
     let u = &A_scaled * (&A6 * 0.000000025 + &A4 * 0.000001 + &A2 * 0.0002 + &I);
     let v = &A6 * 0.000000025 + &A4 * 0.000001 + &A2 * 0.0002 - &I;
 
+    // Form (U + V)(U - V)^(-1)
     let numer = &u + &v;
     let denom = &u - &v;
 
+    // Final matrix exponential for scaled A
     let mut expA = denom.try_inverse().unwrap() * numer;
 
+    // Apply scaling back by squaring result s times
     for _ in 0..s {
         expA = &expA * &expA;
     }
@@ -67,25 +176,33 @@ fn expm(A: DMatrix<f32>) -> DMatrix<f32> {
     expA
 }
 
+// Discretize system in state space ---------- 
+// Discretizes continuous-time system matrices A and B using Zero-Order Hold (ZOH) method
+// This is done by computing the matrix exponential of the augmented system [A B; 0 0]
+// Returns the discrete-time equivalents (Ad, Bd)
 #[allow(non_snake_case)]
 fn discretize_ab_zoh<const N: usize, const M: usize>(
-    A: &SMatrix<f32, N, N>,
-    B: &SMatrix<f32, N, M>,
-    dt: f32,
+    A: &SMatrix<f32, N, N>, // Continuous-time state transition matrix
+    B: &SMatrix<f32, N, M>, // Continuous-time control input matrix
+    dt: f32,                // Discretization timestep (Δt)
 ) -> (SMatrix<f32, N, N>, SMatrix<f32, N, M>) {
-    // Create dynamic matrix for augmented system
+    // Create (N+M)x(N+M) augmented matrix to capture both A and B
+    // Layout:
+    // [ A  B ]
+    // [ 0  0 ]
     let mut AB_aug = DMatrix::<f32>::zeros(N + M, N + M);
 
+    // Copy A and B into the top part of the matrix
     let A_d = DMatrix::from_row_slice(N, N, A.as_slice());
     let B_d = DMatrix::from_row_slice(N, M, B.as_slice());
 
-    AB_aug.view_mut((0, 0), (N, N)).copy_from(&A_d);
-    AB_aug.view_mut((0, N), (N, M)).copy_from(&B_d);
+    AB_aug.view_mut((0, 0), (N, N)).copy_from(&A_d);     // Top-left: A
+    AB_aug.view_mut((0, N), (N, M)).copy_from(&B_d);     // Top-right: B
 
+    // Compute matrix exponential of augmented system: exp([A B; 0 0] * dt)
+    let AB_exp = expm(AB_aug * dt);
 
-    let AB_exp = expm(AB_aug * dt); // your custom expm() must also support DMatrix
-
-    // Extract slices and convert back to SMatrix
+    // Extract Ad (top-left NxN) and Bd (top-right NxM) from result
     let mut Ad = SMatrix::<f32, N, N>::zeros();
     for i in 0..N {
         for j in 0..N {
@@ -100,11 +217,9 @@ fn discretize_ab_zoh<const N: usize, const M: usize>(
         }
     }
 
+    // Return discretized system matrices
     (Ad, Bd)
 }
-
-
-// ! DELETE LATER?
 
 
 
@@ -114,22 +229,29 @@ fn discretize_ab_zoh<const N: usize, const M: usize>(
 
 
 #[allow(non_snake_case)]
-pub fn predict<F>(
-    f: F,
-    dt: f32,
-    x_est_post_prev: Vector12<f32>,
-    u_prev: Vector2<f32>,
-    P_post_prev: Matrix12x12<f32>,
-    A: Matrix12x12<f32>,
-    B: Matrix12x2<f32>,
-    Q: Matrix12x12<f32>,
+pub fn predict<F, const NX: usize, const NU: usize>(
+    f: F,                                     // Nonlinear function f(x, u)
+    dt: f32,                                  // Time step [s]
+    x_est_post: SVector<f32, NX>,             // Last corrected state estimate
+    u: SVector<f32, NU>,                      // Last control input
+    P_post: SMatrix<f32, NX, NX>,             // Last corrected state covariance
+    Q: SMatrix<f32, NX, NX>,                  // Process noise covariance
 ) -> (
-    Vector12<f32>,
-    Matrix12x12<f32>,
+    SVector<f32, NX>,                         // Predicted state
+    SMatrix<f32, NX, NX>,                     // Predicted covariance
 )
 where
-    F: Fn(&Vector12<f32>, &Vector2<f32>) -> Vector12<f32>,
-{
+    F: Fn(&SVector<f32, NX>, &SVector<f32, NU>) -> SVector<f32, NX>,
+{   
+    // Linearize our system around the given work point
+    // We linearize the nonlinear function f(x, u) at the current operating point.
+    // This gives us the Jacobians:
+    //   A = ∂f/∂x : how state affects change of state
+    //   B = ∂f/∂u : how input affects change of state
+    //
+    // These are used to propagate uncertainty and discretize the system model.
+    let (A, B) = linearize_system(&f, &x_est_post, &u, 1e-4, 1e-4);
+
     // Get discretized state matrixes
     // In order to do proper estimation we use euler forward method
     // This yields us state estimate using only linearized model
@@ -147,26 +269,15 @@ where
     // u[k-1]: Previous control input
     // F_d: Discrete state transition matrix
     // B_d: Discrete control input matrix
-
-
-
-
-    
-    // ?let F_d: Matrix12x12<f32> = Matrix12x12::identity() + dt*A;
-    // ?let B_d: Matrix12x6<f32> = dt*B;
-
-    //! DELETE LATER?
-    let (F_d, B_d) = discretize_ab_zoh::<12, 2>(&A, &B, dt);
-
-
-
-
-
-
-    // Calculate estimate based ONLY on state
-    let x_est_pri: Vector12<f32> = F_d*x_est_post_prev + B_d*u_prev;
-
-    let x_est_pri: Vector12<f32> = x_est_post_prev + dt * f(&x_est_post_prev, &u_prev);
+    //
+    // However for EKF the prediction itself does not use the linearized state matrixes
+    // Instead it uses the non linear ODE f(x, u) straight
+    // In addition it uses explicit solver to predict the next states
+    // More specifically euler forward method to predict our next state based on f(x, u) work point
+    // x[k] = x[k-1] + dt*f(x[k-1], u[k-1])
+    // x_est_priori[k] = x_est[k-1] + dt*f(x_est[k-1], u[k-1])
+    let (F_d, B_d) = discretize_ab_zoh::<NX, NU>(&A, &B, dt);
+    let x_est_pri: SVector<f32, NX> = x_est_post + dt * f(&x_est_post, &u);
 
     // Calculate state uncertainty
     // We must calculate how uncertain we are with the estimate using only model to estimate
@@ -178,7 +289,7 @@ where
     // Q: Trust matrix for our model, each diagonal value represents how much we trust that model is correct on that particular state
     //      Q << 1 => Trust the model A LOT
     //      Q >> 1 => DON'T trust the model that much
-    let P_pri: Matrix12x12<f32> = F_d*P_post_prev*F_d.transpose() + Q;
+    let P_pri: SMatrix<f32, NX, NX> = F_d*P_post*F_d.transpose() + Q;
 
     // Return the estimate and the uncertainty
     return (x_est_pri, P_pri);
@@ -187,23 +298,28 @@ where
 
 
 #[allow(non_snake_case)]
-pub fn correct<F>(
-    h: F,
-    z: Vector9<f32>,
-    x_est_pri: Vector12<f32>,
-    P_pri: Matrix12x12<f32>,
-    H: Matrix9x12<f32>,
-    R: Matrix9x9<f32>,
+pub fn correct<F, const NX: usize, const NY: usize>(
+    h: F,                                        // Nonlinear measurement function h(x)
+    z: SVector<f32, NY>,                         // Current measurement
+    x_est_pri: SVector<f32, NX>,                 // Prior state estimate (predicted)
+    P_pri: SMatrix<f32, NX, NX>,                 // Prior covariance estimate (predicted)
+    R: SMatrix<f32, NY, NY>,                     // Measurement noise covariance matrix
 ) -> (
-    Vector12<f32>,
-    Matrix12x12<f32>,
-    Vector9<f32>,
-    Matrix9x9<f32>,
-    Matrix12x9<f32>,
+    SVector<f32, NX>,                            // Corrected state estimate
+    SMatrix<f32, NX, NX>,                        // Corrected covariance matrix
 )
 where
-    F: Fn(&Vector12<f32>) -> Vector9<f32>,
+    F: Fn(&SVector<f32, NX>) -> SVector<f32, NY>,
 {
+    // Linearize measurement matrix
+    // In order to compare measurements with estimates, we must first transform estimates to reflect measurement space
+    // We do that by running h(x) to get estimates in measurement space
+    // However h(x) is highly non linear because of all the transforms
+    // For normal KF we must get H matrix
+    // We do that by linearizing h(x) with respect to x
+    // H = dh/dx = Jacobian(h(x), x)
+    let H = numerical_jacobian(&h, &x_est_pri, 1e-4);
+
     // Calculate Innovation Residual
     // Fist check if what model estimated and what was measured is the same
     // 99.999% of the time they are not the same
@@ -217,16 +333,13 @@ where
     // z[k]: Current Measurement
     // H: measurement transform matrix, transforms estimate to measurement space
     // x_est_priori[k]: Current estimate using ONLY model to predict next states
-    let y: Vector9<f32> = z - H*x_est_pri;
-    
-    // ! REMOVE?????
-    let y: Vector9<f32> = z - h(&x_est_pri);
-
-    // ! DEBUGGING
-    // println!("predicted state = {:?}", x_est_pri);
-    // println!("predicted measurement = {:?}", H*x_est_pri);
-    // println!("measured = {:?}", z);
-    // println!("innovation residual = {:?}", y);
+    //
+    // However since we are using EKF we don't use H linearization for comparing predicted measurement and measured value
+    // We use H only for uncertainty calculation transform
+    // For the Innovation Residual itself we can use the non linear measurement transform, ie:
+    // predicted measurement = non-linear measurement transform of predicted states = h(x_est_pri[k])
+    // y[k] = z[k] - h(x_est_pri[k])
+    let y: SVector<f32, NY> = z - h(&x_est_pri);
 
     // Calculate Innovation Covariance
     // Just like with estimate uncertainty prior and post measurement, so does measurement have some uncertainty attached to them
@@ -238,7 +351,7 @@ where
     // R: Uncertainty from sensor (Found by taking measurements of the sensor and getting variance of the different measurement states)
     //      R << 1 => Trust the measurements A LOT
     //      R >> 1 => DON'T trust the measurements that much
-    let S: Matrix9x9<f32> = H*P_pri*H.transpose() + R;
+    let S: SMatrix<f32, NY, NY> = H*P_pri*H.transpose() + R;
 
     // Calculate Kalman Gain
     // Now we know from before hand, estimate uncertainty BEFORE measurement (ie only estimate using model x_est_priori[k])
@@ -253,15 +366,14 @@ where
     // K[k] = P_priori[k]*H.T*(S[k])⁽⁻¹⁾
     //
     // K[k]: Current Kalman Gain, tells how much we must reduce/increase Innovation Residual to get perfect blend between Estimate and Measurement
-    //let S_inv: Matrix9x9<f32> = S.try_inverse().expect("Matrix S is not invertible");
-    let S_inv: Matrix9x9<f32> = S.try_inverse().unwrap();
-    let K: Matrix12x9<f32> = P_pri*H.transpose()*S_inv;
+    let S_inv = S.try_inverse().unwrap();
+    let K: SMatrix<f32, NX, NY> = P_pri*H.transpose()*S_inv;
 
     // Correct estimate using model AND measurement
     // To know how much to subtract/add from estimate priori, we must utilize kalman gain on Innovation Residual
     // This will give optimal balance of how much to add to each estimate prior to get a good balance between estimate and measurement
     // x_est[k] = x_est_priori[k] + K[k]*y[k]
-    let x_est: Vector12<f32> = x_est_pri + K*y;
+    let x_est: SVector<f32, NX> = x_est_pri + K*y;
 
     // Correct Estimate Uncertainty
     // Before we finish, we just corrected estimate
@@ -273,8 +385,9 @@ where
     // P[k] = (I - K[k]*H)*P_priori[k]
     //
     // P[k]: Current state uncertainty AFTER measurements/correction
-    let P: Matrix12x12<f32> = (Matrix12x12::identity() - K*H)*P_pri;
+    let I = SMatrix::<f32, NX, NX>::identity();
+    let P: SMatrix<f32, NX, NX> = (I - K*H)*P_pri;
 
     // Return results
-    return (x_est, P, y, S, K);
+    return (x_est, P);
 }

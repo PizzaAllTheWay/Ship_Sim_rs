@@ -151,79 +151,6 @@ impl ODE {
 
 
 
-// Linearized system matrices ----------
-// System matrices represent how the state and input affect the *rate of change* of the system:
-// A = ∂f/∂x → how state affects state change (Jacobian of f w.r.t. x)
-// B = ∂f/∂u → how input affects state change (Jacobian of f w.r.t. u)
-//
-// NOTE: f(x, u) is a second-order ODE, meaning acceleration depends on velocity and input.
-//       However, the Kalman Filter requires a *first-order* system in the form:
-//           x_dot = A * x + B * u
-//       So we split the system into 12 state variables like so:
-//           [v_lin, v_ang, pos_lin, pos_ang]
-//       This structure leads to the following block structure of A:
-//
-//       A = [ ∂a/∂v   ∂a/∂ω     0        0
-//             ∂α/∂v   ∂α/∂ω     0        0
-//               I       0       0        0
-//               0       I       0        0 ]
-//
-// Explanation:
-//   - Top-left 6x6 block: partial derivatives of linear/angular accelerations w.r.t. velocities (∂a/∂v, ∂a/∂ω)
-//   - Bottom-left 6x6 block: identity matrices to convert velocities to positions over time (∂pos/∂vel = I)
-//   - Top-right and bottom-right blocks are zero because accel doesn’t directly depend on positions or angles,
-//     and positions don’t directly affect other positions or angles in a single time step.
-//
-// Similarly, B is structured like:
-//       B = [ ∂a/∂u
-//             ∂α/∂u
-//              0
-//              0 ]
-//
-// Since only velocities change due to control inputs (u), positions and angles don’t directly respond to u.
-#[allow(non_snake_case)]
-pub fn linearize_system<Fx, Fu>(
-    f_x: Fx,
-    f_u: Fu,
-    x: &Vector12<f32>,
-    u: &Vector2<f32>,
-    dx: f32,
-    du: f32,
-) -> (Matrix12x12<f32>, Matrix12x2<f32>)
-where
-    Fx: Fn(&Vector12<f32>) -> Vector12<f32>,
-    Fu: Fn(&Vector2<f32>) -> Vector12<f32>,
-{
-    let mut df_dx: Matrix12x12<f32> = numerical_jacobian(&f_x, x, dx);
-    let df_du: Matrix12x2<f32> = numerical_jacobian(&f_u, u, du);
-
-    // Construct A smartly: 
-    // A = [∂a/∂v ∂a/∂w 0 0;
-    //      ∂α/∂v ∂α/∂w 0 0;
-    //      I     0     0 0;
-    //      0     I     0 0]
-    let mut A = Matrix12x12::<f32>::zeros();
-    A.fixed_view_mut::<3, 3>(0, 0).copy_from(&df_dx.fixed_view_mut::<3, 3>(0, 0)); // ∂a/∂v
-    A.fixed_view_mut::<3, 3>(0, 3).copy_from(&df_dx.fixed_view_mut::<3, 3>(0, 3)); // ∂a/∂ω
-    A.fixed_view_mut::<3, 3>(3, 0).copy_from(&df_dx.fixed_view_mut::<3, 3>(3, 0)); // ∂α/∂v
-    A.fixed_view_mut::<3, 3>(3, 3).copy_from(&df_dx.fixed_view_mut::<3, 3>(3, 3)); // ∂α/∂ω
-    A.fixed_view_mut::<3, 3>(6, 0).copy_from(&nalgebra::Matrix3::identity());    // dx/dv
-    A.fixed_view_mut::<3, 3>(9, 3).copy_from(&nalgebra::Matrix3::identity());    // dθ/dω
-
-    // Construct B smartly:
-    // B = [∂a/∂u;
-    //      ∂α/∂u;
-    //      0;
-    //      0]
-    let mut B = Matrix12x2::<f32>::zeros();
-    B.fixed_rows_mut::<6>(0).copy_from(&df_du.fixed_rows::<6>(0)); // upper half
-    // lower half remains zero
-
-    (A, B)
-}
-
-
-
 // Transformation functions for sensors ----------
 // measurements from estimate (~z) = h(x)*x
 // estimate from measurements (~x) = h(x)⁽⁻¹⁾*z
@@ -343,10 +270,7 @@ fn main() {
             config.ship.velocity_angular_max,
         );
 
-        let x_ref = x_0.clone();
-        let u_ref = u_0.clone();
-        let f_x = |x: &Vector12<f32>| ode.f(x, &u_ref);
-        let f_u = |u: &Vector2<f32>| ode.f(&x_ref, u);
+        
 
         // Get confidence matrix for our model
         let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.Q);
@@ -362,22 +286,16 @@ fn main() {
             let x_est_post_prev = *kf_clone.x_est_post.read().unwrap();
             let P_post_prev = *kf_clone.P_post.read().unwrap();
 
-            // Linearize system around the current work point
-            let (A, B) = linearize_system(f_x, f_u, &x_est_post_prev, &u_prev, 1e-4, 1e-4);
-
+            
             // Predict
             let (x_est_priori, P_priori) = ekf::predict(
                 |x, u| ode.f(x, u),
                 dt, 
                 x_est_post_prev, 
                 u_prev, 
-                P_post_prev, 
-                A, 
-                B, 
+                P_post_prev,
                 Q
             );
-
-            
 
             // Update KF states
             {
@@ -431,23 +349,11 @@ fn main() {
             let z = gnss;
             let x_est_pri = *kf_clone.x_est_pri.read().unwrap();
             let P_pri = *kf_clone.P_pri.read().unwrap();
-            
-            // Linearize measurement matrix
-            // In order to compare measurements with estimates, we must first transform estimates to reflect measurement space
-            // We do that by running h(x) to get estimates in measurement space
-            // However h(x) is highly non linear because of all the transforms
-            // For normal KF we must get H matrix
-            // We do that by linearizing h(x) with respect to x
-            // H = dh/dx = Jacobian(h(x), x)
-            let H = numerical_jacobian(&h_fn, &x_est_pri, 1e-4);
 
             // Correction
             let (
                 x_est_posterior,
                 P_posterior,
-                y,
-                S,
-                K,
             ) = ekf::correct(
                 |x| h_gnss(
                     x.clone(),
@@ -457,7 +363,6 @@ fn main() {
                 z,
                 x_est_pri,
                 P_pri,
-                H,
                 R,
             );
 
