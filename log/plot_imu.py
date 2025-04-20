@@ -206,3 +206,20 @@ ax3.grid(True)
 ax3.legend()
 plt.tight_layout()
 plt.show()
+
+
+
+# === IMU Measurement Variance (for Kalman R_imu matrix) ===
+imu_variances = {
+    "Accel_X": np.var(imu_data["ax"]),
+    "Accel_Y": np.var(imu_data["ay"]),
+    "Accel_Z": np.var(imu_data["az"]),
+    "Gyro_X": np.var(imu_data["gx"]),
+    "Gyro_Y": np.var(imu_data["gy"]),
+    "Gyro_Z": np.var(imu_data["gz"]),
+    "Yaw":     np.var(imu_data["yaw"]),
+}
+
+print("\n=== IMU Measurement Variances ===")
+for name, var in imu_variances.items():
+    print(f"{name}: {var:.6f}")

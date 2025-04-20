@@ -132,7 +132,7 @@ pub mod TOPICS {
     // Data Type [KF<f32>]:
     // Estimate: [(velocity linear), (velocity angular), (position linear), (position angular)]
     // Estimate Uncertainty: [(velocity linear), (velocity angular), (position linear), (position angular)]
-    pub mod kf {
+    pub mod ekf {
         use super::*;
         use Vector12;
         pub const PORT: u16 = 5590;

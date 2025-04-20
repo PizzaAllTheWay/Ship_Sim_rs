@@ -12,10 +12,6 @@ x_0 = [
     0.0, 0.0, 0.0, # [x, y, z]
     0.0, 0.0, 0.0, # [roll, pitch, yaw]
 ]
-u_0 = [
-    0.0, # [rpm] Thruster speed
-    0.0, # [rad] Thruster yaw angle
-]
 
 [interface]
 fps = 60.0 # [Hz]
@@ -77,6 +73,11 @@ R_gnss = [
     1.600936, 1.619552, 5.448326, # Measurement trust in: antenna1 [x, y, z]
     1.560227, 1.512290, 5.518882, # Measurement trust in: antenna2 [x, y, z]
     0.824833, 0.824833, 1.096953, # Measurement trust in: velocity [vx, vy, vz]
+]
+R_imu = [
+     0.0001,  0.0001, 0.689729, # Measurement trust in: accelerometer [ax, ay, az]
+    0.00001, 0.00001,   0.00001, # Measurement trust in: gyroscope [wx, wy, wz]
+    0.00001,                     # Measurement trust in: magnetometer [yaw]
 ]
 
 

@@ -67,7 +67,7 @@ fn main() {
     spawn_logger!(speed,               "speed.csv");
     spawn_logger!(gnss,                "gnss.csv");
     spawn_logger!(imu,                 "imu.csv");
-    spawn_logger!(kf,                  "kf.csv");
+    spawn_logger!(ekf,                 "ekf.csv");
 
     for h in handles {
         h.join().unwrap();

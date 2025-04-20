@@ -158,9 +158,9 @@ fn main() {
     thread::spawn(move || {
         loop {
             // Wait for states
-            let msg = udp_utils::subscribe(TOPICS::kf::PORT).unwrap();
+            let msg = udp_utils::subscribe(TOPICS::ekf::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let kf: TOPICS::kf::DataType = udp_utils::decode_json(json_str);
+            let kf: TOPICS::ekf::DataType = udp_utils::decode_json(json_str);
             let x_est = kf;
 
             // Update GUI with new states

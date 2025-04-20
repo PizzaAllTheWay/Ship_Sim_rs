@@ -498,7 +498,7 @@ impl eframe::App for SimulatorWindow {
 
                     // IMU Interface
                     let mut show_kf_estimate = self.state.show_kf_estimate.write().unwrap();
-                    ui.checkbox(&mut *show_kf_estimate, "Show KF Estimate");
+                    ui.checkbox(&mut *show_kf_estimate, "Show EKF Estimate");
                 });
             });
 
