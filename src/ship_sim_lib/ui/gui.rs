@@ -698,7 +698,13 @@ impl eframe::App for SimulatorWindow {
 /// === window ===
 /// Launch GUI with provided shared state and run until closed
 pub fn window(state: SharedState) {
-    let options = eframe::NativeOptions::default();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 400.0]) // <- Set your window size here
+            .with_title("Ship Simulator GUI"),
+        ..Default::default()
+    };
+
     let _ = eframe::run_native(
         "Ship Simulator GUI",
         options,

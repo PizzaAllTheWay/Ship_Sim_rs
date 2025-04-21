@@ -16,6 +16,7 @@ use std::time::Duration;
 use std::sync::{Arc, RwLock};
 
 // Library for maths
+use std::f32::consts::PI;
 use nalgebra::Vector3;
 
 // Library for randomness
@@ -121,7 +122,10 @@ fn main() {
             // Split up states into manageable subparts
             let v_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(0).into(); // [vx, vy, vz]
             let r_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(6).into(); // [x, y, z]
-            let r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+            let mut r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+
+            // Reorient state to NED frame
+            r_ang_w[0] += PI;
 
             // Inverse Kinematics
             let r_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * r_lin_w;

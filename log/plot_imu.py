@@ -211,15 +211,55 @@ plt.show()
 
 # === IMU Measurement Variance (for Kalman R_imu matrix) ===
 imu_variances = {
-    "Accel_X": np.var(imu_data["ax"]),
-    "Accel_Y": np.var(imu_data["ay"]),
-    "Accel_Z": np.var(imu_data["az"]),
-    "Gyro_X": np.var(imu_data["gx"]),
-    "Gyro_Y": np.var(imu_data["gy"]),
-    "Gyro_Z": np.var(imu_data["gz"]),
-    "Yaw":     np.var(imu_data["yaw"]),
+    "Accel_X": np.var(imu_data["ax"] - truth_ax),
+    "Accel_Y": np.var(imu_data["ay"] - truth_ay),
+    "Accel_Z": np.var(imu_data["az"] - truth_az),
+    "Gyro_X": np.var(imu_data["gx"] - truth_wx),
+    "Gyro_Y": np.var(imu_data["gy"] - truth_wy),
+    "Gyro_Z": np.var(imu_data["gz"] - truth_wz),
+    "Yaw":     np.var(imu_data["yaw"] - truth_yaw),
 }
 
 print("\n=== IMU Measurement Variances ===")
 for name, var in imu_variances.items():
-    print(f"{name}: {var:.6f}")
+    print(f"{name}: {var:.16f}")
+
+
+
+# === IMU Acceleration Drift Estimation ===
+drift_ax = np.mean(imu_data["ax"] - truth_ax)
+drift_ay = np.mean(imu_data["ay"] - truth_ay)
+drift_az = np.mean(imu_data["az"] - truth_az)
+
+print("\n=== Estimated Linear Acceleration Drift ===")
+print(f"Drift Ax: {drift_ax:.16f} m/s²")
+print(f"Drift Ay: {drift_ay:.16f} m/s²")
+print(f"Drift Az: {drift_az:.16f} m/s²  (note: gravity-corrected)")
+
+# Angular velocity truth (body frame)
+truth_wx = x_data["wx"].iloc[-1]
+truth_wy = x_data["wy"].iloc[-1]
+truth_wz = x_data["wz"].iloc[-1]
+
+# Drift = average sensor - ground truth
+drift_wx = np.mean(imu_data["gx"] - truth_wx)
+drift_wy = np.mean(imu_data["gy"] - truth_wy)
+drift_wz = np.mean(imu_data["gz"] - truth_wz)
+
+print("\n=== Estimated Angular Velocity Drift ===")
+print(f"Drift Wx: {drift_wx:.16f} rad/s")
+print(f"Drift Wy: {drift_wy:.16f} rad/s")
+print(f"Drift Wz: {drift_wz:.16f} rad/s")
+
+# Yaw from integrated gyro
+yaw_integrated = gz_angle[-1]
+truth_yaw = x_data["yaw"].iloc[-1]
+
+# Drift
+drift_yaw = yaw_integrated - truth_yaw
+
+print("\n=== Estimated Yaw Drift ===")
+print(f"Yaw Drift: {drift_yaw:.16f} rad")
+
+
+

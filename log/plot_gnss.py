@@ -56,8 +56,8 @@ truth_ant2_x = com_x + antenna2_offset[0]
 truth_ant2_y = com_y + antenna2_offset[1]
 
 # Find Z truths
-truth_ant1_z = com_z + antenna1_offset[2]
-truth_ant2_z = com_z + antenna2_offset[2]
+truth_ant1_z = com_z - antenna1_offset[2]
+truth_ant2_z = com_z - antenna2_offset[2]
 
 # Find velocity truths
 truth_vx = x_data["vx"].iloc[-1]

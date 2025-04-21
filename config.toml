@@ -23,10 +23,11 @@ current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore
 
 [sensors]
 # Assuming a good consumer grade GNSS
-gnss_pub_frequency = 1.00 # [Hz]
+gnss_pub_frequency = 100.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
-gnss_antenna1_placement = [-10.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
-gnss_antenna2_placement = [0.0, 0.0, 3.0] # [m] (x, y, z) (Placement: Center) placement of the antenna relative to the center of mass on the ship body frame 
+# ?NOTE: NED Frame right hand rule. Must place Antenna1 in front and Antenna2 behind otherwise Estimator will confuse front and back antennas and you will get weird estimate :/
+gnss_antenna1_placement = [10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
+gnss_antenna2_placement = [-10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
 # ?NOTE: Since most Satellites orbit around equator, most likely satellite for GNSS will be from this group of satellites, this means they are more accurate horizontally than vertically 
 # ?NOTE: Horizontal => XY Plane
 # ?NOTE: Vertical => Z Direction (UP/DOWN)
@@ -56,28 +57,44 @@ imu_mag_fsr = 6.28 # [rad] full scale resolution
 kf_pub_frequency = 100.00 # [Hz]
 # ?NOTE: Never have 0.0 in P_0, as that indicates we are 100% confident in our model from the start, this means we would not trust the measurements as the estimator would assume we already have perfect model, witch we don't
 P_0 = [
-    0.01, 0.01, 0.01, # Uncertainty: [vx, vy, vz]
-    0.01, 0.01, 0.01, # Uncertainty: [wx, wy, wz]
-    0.01, 0.01, 0.01, # Uncertainty: [x, y, z]
-    0.01, 0.01, 0.01, # Uncertainty: [roll, pitch, yaw]
+    0.5, 0.5, 0.1, # Uncertainty: [vx, vy, vz]
+    0.1, 0.1, 0.5, # Uncertainty: [wx, wy, wz]
+    1.0, 1.0, 0.1, # Uncertainty: [x, y, z]
+    0.1, 0.1, 0.5, # Uncertainty: [roll, pitch, yaw]
 ]
+
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
-    10.0006, 10.0006, 10.0003, # Model trust in: [vx, vy, vz]
-    10.0050, 10.0050, 10.0010, # Model trust in: [wx, wy, wz]
-    1.00010, 1.00010, 0.0003, # Model trust in: [x, y, z]
-    10.000009, 10.000009, 10.0004, # Model trust in: [roll, pitch, yaw]
+    2.0, 2.0, 3.0, # Model trust in: [vx, vy, vz]
+    1.0, 1.0, 5.0, # Model trust in: [wx, wy, wz]
+    5.0, 5.0, 3.0, # Model trust in: [x, y, z]
+    3.0, 3.0, 10.0, # Model trust in: [roll, pitch, yaw]
 ]
+
+# Q = [
+#     2.0, 2.0, 1.0, # Model trust in: [vx, vy, vz]
+#     1.0, 1.0, 5.0, # Model trust in: [wx, wy, wz]
+#     5.0, 5.0, 3.0, # Model trust in: [x, y, z]
+#     3.0, 3.0, 10.0, # Model trust in: [roll, pitch, yaw]
+# ]
+
+
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [
     1.600936, 1.619552, 5.448326, # Measurement trust in: antenna1 [x, y, z]
     1.560227, 1.512290, 5.518882, # Measurement trust in: antenna2 [x, y, z]
     0.824833, 0.824833, 1.096953, # Measurement trust in: velocity [vx, vy, vz]
 ]
+
 R_imu = [
-     0.0001,  0.0001, 0.689729, # Measurement trust in: accelerometer [ax, ay, az]
-    0.00001, 0.00001,   0.00001, # Measurement trust in: gyroscope [wx, wy, wz]
-    0.00001,                     # Measurement trust in: magnetometer [yaw]
+    0.0000000782507343, 0.0000008236971636, 0.0000001261186860, # Measurement trust in: accelerometer [ax, ay, az]
+    0.0000000001637147, 0.0000000002326225, 0.0000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
+    0.0000000096122428,                                         # Measurement trust in: magnetometer [yaw]
 ]
 
+imu_drift = [
+    0.0000028790977229, 0.0000103167668384, 0.0000672533558569, # accelerometer drift [m/s²] 
+    0.0000003081781019, 0.0000000021636393, 0.0000002311335764, # gyroscope drift [rad/s]
+    0.0000081211093400,                                         # magnetometer drift [rad]
+]
 

@@ -1,6 +1,7 @@
 // Custom libraries
 use ship_sim_lib::estimators::ship_approx;
 use ship_sim_lib::estimators::ekf;
+use ship_sim_lib::estimators::estimators_utils;
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::TOPICS;
@@ -18,7 +19,7 @@ use std::str;
 // Library for linear algebra
 use nalgebra::{
     Vector2, Vector3, Vector6, SVector,
-    Matrix3, SMatrix
+    SMatrix
 };
 
 
@@ -61,6 +62,7 @@ struct EstimatorsConfig {
     Q: [f32; 12],
     R_gnss: [f32; 9],
     R_imu: [f32; 7],
+    imu_drift: [f32; 7],
 }
 
 #[derive(Deserialize)]
@@ -190,8 +192,7 @@ fn h_gnss(
     y.fixed_rows_mut::<3>(3).copy_from(&r_antenna2_w);
     y.fixed_rows_mut::<3>(6).copy_from(&v_lin_w);
 
-    // Return transformed vector
-    return y;
+    y
 }
 
 fn h_imu(
@@ -199,41 +200,38 @@ fn h_imu(
     imu_placement: Vector6<f32>, // IMU placement: [x, y, z, roll, pitch, yaw] in body frame
 ) -> Vector7<f32> {
     // Extract states
-    let a_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into();   // linear acceleration in world frame
+    let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into();   // linear velocity in world frame
     let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into();   // angular velocity in world frame
-    let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into();   // ship orientation (roll, pitch, yaw)
+    let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into();   // orientation (roll, pitch, yaw)
 
-    // Placement split
-    let imu_pos_b: Vector3<f32> = Vector3::new(imu_placement[0], imu_placement[1], imu_placement[2]);
-    let imu_rot_b: Vector3<f32> = Vector3::new(imu_placement[3], imu_placement[4], imu_placement[5]);
+    // IMU placement
+    let imu_pos_b = Vector3::new(imu_placement[0], imu_placement[1], imu_placement[2]);
+    let imu_rot_b = Vector3::new(imu_placement[3], imu_placement[4], imu_placement[5]);
 
     // Rotation matrices
-    let r_body_to_imu: Matrix3<f32> = kinematics::r_body_to_object(imu_rot_b);
-    let r_world_to_body: Matrix3<f32> = kinematics::r_world_to_body(r_ang_w);
+    let r_world_to_body = kinematics::r_world_to_body(r_ang_w);
+    let r_body_to_imu = kinematics::r_body_to_object(imu_rot_b);
 
-    // Gravity
-    let gravity_w: Vector3<f32> = Vector3::new(0.0, 0.0, -9.81);
-    let gravity_b: Vector3<f32> = r_world_to_body * gravity_w;
+    // Linear velocity in body frame
+    let v_lin_b = r_world_to_body * v_lin_w;
 
-    // Linear acceleration in body frame
-    let a_lin_b: Vector3<f32> = r_world_to_body * a_lin_w;
-    let mut accel_b: Vector3<f32> = a_lin_b + gravity_b;
+    // Linear velocity in IMU frame
+    let v_lin_imu = r_body_to_imu * (v_lin_b + v_ang_w.cross(&imu_pos_b));
 
-    // Centripetal acceleration: a_c = ω × (ω × r)
-    let omega_cross_r: Vector3<f32> = v_ang_w.cross(&imu_pos_b);
-    let omega_cross_omega_cross_r: Vector3<f32> = v_ang_w.cross(&omega_cross_r);
-    accel_b += omega_cross_omega_cross_r;
+    // !!! SHOULD THSI BE HERE??? Clamp velocity because it can't be physically bigger than  +-20 m/s otherwise IMU would be bad X-X
+    let v_lin_imu = v_lin_imu.map(|v| v.clamp(-20.0, 20.0));
 
-    // Transform to IMU frame
-    let accel: Vector3<f32> = r_body_to_imu * accel_b;
-    let gyro: Vector3<f32> = r_body_to_imu * kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
-    let mag = r_ang_w[2]; // yaw angle
+    // Angular velocity in IMU frame
+    let gyro = r_body_to_imu * kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
 
-    // Pack into vector
+    // Yaw (magnetometer proxy)
+    let mag = r_ang_w[2];
+
+    // Pack it
     let mut y = Vector7::<f32>::zeros();
-    y.fixed_rows_mut::<3>(0).copy_from(&accel);
-    y.fixed_rows_mut::<3>(3).copy_from(&gyro);
-    y[6] = mag;
+    y.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
+    y.fixed_rows_mut::<3>(3).copy_from(&gyro);      // gyro
+    y[6] = mag;                                     // yaw angle
 
     y
 }
@@ -285,6 +283,14 @@ fn main() {
         x_est_pri: Arc::new(RwLock::new(x_0)),
         P_pri: Arc::new(RwLock::new(P_0)),
     };
+
+    // IMU drift setup
+    #[allow(non_snake_case)]
+    let R_imu_vector: Vector7<f32> = Vector7::<f32>::from_row_slice(&config.estimators.R_imu);
+    #[allow(non_snake_case)]
+    let R_imu_0: Matrix7x7<f32> = Matrix7x7::<f32>::from_diagonal(&R_imu_vector);
+    #[allow(non_snake_case)]
+    let R_imu = Arc::new(RwLock::new(R_imu_0));
     
     // Predict using approximated ship model ----------
     let ekf_data_clone = ekf_data.clone();
@@ -292,7 +298,7 @@ fn main() {
     #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
-        // Calculate interval for KF Estimate publishing rate
+        // Calculate interval for EKF Estimate publishing rate
         let dt = 1.0/config.estimators.kf_pub_frequency; // [s]
         let interval = Duration::from_millis((dt * 1000.0) as u64); // [ms]
 
@@ -324,7 +330,7 @@ fn main() {
             let P_post_prev = *ekf_data_clone.P_post.read().unwrap();
             
             // Predict
-            let (x_est_priori, P_priori) = ekf::predict(
+            let (mut x_est_priori, P_priori) = ekf::predict(
                 |x, u| ode.f(x, u),
                 dt, 
                 x_est_post_prev, 
@@ -332,6 +338,18 @@ fn main() {
                 P_post_prev,
                 Q,
             );
+
+            // Remove roll and pitch position and velocity
+            // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
+            // If roll and pitch were anything than 0 the ship would be rolled over game over
+            // Also because of euler angles if these come close to +- pi/2 it will get a singularity
+            x_est_priori[3] = 0.0; // Roll velocity
+            x_est_priori[4] = 0.0; // Pitch velocity
+            x_est_priori[9] = 0.0; // Roll
+            x_est_priori[10] = 0.0; // Pitch
+
+            // Constrain Yaw
+            x_est_priori[11] = estimators_utils::wrap_angle(x_est_priori[11]); // yaw
 
             // Update EKF states
             {
@@ -356,7 +374,7 @@ fn main() {
             }
         }
     });
-
+    
     // Correct using GNSS ----------
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]
@@ -373,13 +391,13 @@ fn main() {
             let gnss: TOPICS::gnss::DataType = udp_utils::decode_json(json_str);
 
             // EKF States
-            let z = gnss;
+            let mut z = gnss;
             let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
 
             // Correction
             let (
-                x_est_posterior,
+                mut x_est_posterior,
                 P_posterior,
             ) = ekf::correct(
                 |x| h_gnss(
@@ -393,6 +411,18 @@ fn main() {
                 R,
             );
 
+            // Remove roll and pitch position and velocity
+            // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
+            // If roll and pitch were anything than 0 the ship would be rolled over game over
+            // Also because of euler angles if these come close to +- pi/2 it will get a singularity
+            x_est_posterior[3] = 0.0; // Roll velocity
+            x_est_posterior[4] = 0.0; // Pitch velocity
+            x_est_posterior[9] = 0.0; // Roll
+            x_est_posterior[10] = 0.0; // Pitch
+
+            // Constrain Yaw
+            x_est_posterior[11] = estimators_utils::wrap_angle(x_est_posterior[11]); // yaw
+
             // Update EKF states
             {
                 let mut x_est_post = ekf_data_clone.x_est_post.write().unwrap();
@@ -403,33 +433,67 @@ fn main() {
                 *P_post = P_posterior;
             }
 
-            // Publish KF data
-            let kf_data: TOPICS::ekf::DataType = x_est_posterior;
-            let kf_data_json = udp_utils::encode_json(&kf_data);
-            udp_utils::publish(TOPICS::ekf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
+            // Publish EKF data
+            // let kf_data: TOPICS::ekf::DataType = x_est_posterior;
+            // let kf_data_json = udp_utils::encode_json(&kf_data);
+            // udp_utils::publish(TOPICS::ekf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
 
     // Correction using IMU ----------
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]
+    let R_imu_clone = R_imu.clone();
+    #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
-        // Get confidence matrix for our measurements
-        let R_vector: Vector7<f32> = Vector7::<f32>::from_row_slice(&config.estimators.R_imu);
-        let R: Matrix7x7<f32> = Matrix7x7::<f32>::from_diagonal(&R_vector);
+        // Integration states
+        let mut v_lin_imu_integral = Vector3::<f32>::zeros();
+        let mut last_time = Instant::now();
 
+        // Get the IMU drift
+        let mut imu_drift_factor: Vector7::<f32> = Vector7::<f32>::from_row_slice(&config.estimators.imu_drift);
+        imu_drift_factor += Vector7::<f32>::from_element(1.0);
+        let imu_drift_matrix: Matrix7x7<f32> = Matrix7x7::from_diagonal(&imu_drift_factor);
+        
         loop {
             // Wait for IMU data
             let msg = udp_utils::subscribe(TOPICS::imu::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
             let imu: TOPICS::imu::DataType = udp_utils::decode_json(json_str);
-
+            
             // EKF States
-            let z = imu;
             let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
 
+
+
+            // Integrate acceleration to velocity
+            let dt = last_time.elapsed().as_secs_f32();
+            last_time = Instant::now();
+
+            let accel = imu.fixed_rows::<3>(0).into_owned();
+            v_lin_imu_integral += dt * accel;
+            v_lin_imu_integral = v_lin_imu_integral.map(|v| v.clamp(-10.0, 10.0));
+
+            // Add drift to the measurement noise matrix
+            let mut R: Matrix7x7<f32> = *R_imu_clone.read().unwrap();
+            //R = R.component_mul(&imu_drift_matrix);
+
+            // Update measurement noise matrix with new noise immediately 
+            {
+                let mut R_imu_write = R_imu_clone.write().unwrap();
+                *R_imu_write = R;
+            }
+            
+            // Build vector measurement with integrated acceleration
+            let mut z = Vector7::<f32>::zeros();
+            z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu_integral);                       // velocity
+            z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3));  // gyro
+            z[6] = imu[6]; // yaw
+
+
+            
             // !DELETE TESTING!
             // let h = h_imu(
             //     x_est_pri,
@@ -440,12 +504,13 @@ fn main() {
             // println!("estimated measurement: {:?}", h);
             // println!("measurement: {:?}", z);
             // println!("y: {:?}", (z - h));
+            // estimators_utils::print_matrix("R", &R);
             // println!();
-            // thread::sleep(Duration::from_millis(1000));
+            // thread::sleep(Duration::from_millis(10));
 
             // Correction
             let (
-                x_est_posterior,
+                mut x_est_posterior,
                 P_posterior,
             ) = ekf::correct(
                 |x| h_imu(
@@ -458,6 +523,15 @@ fn main() {
                 R,
             );
 
+            // Remove roll and pitch position and velocity
+            // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
+            // If roll and pitch were anything than 0 the ship would be rolled over game over
+            // Also because of euler angles if these come close to +- pi/2 it will get a singularity
+            x_est_posterior[3] = 0.0; // Roll velocity
+            x_est_posterior[4] = 0.0; // Pitch velocity
+            x_est_posterior[9] = 0.0; // Roll
+            x_est_posterior[10] = 0.0; // Pitch
+
             // Update EKF states
             {
                 let mut x_est_post = ekf_data_clone.x_est_post.write().unwrap();
@@ -468,10 +542,10 @@ fn main() {
                 *P_post = P_posterior;
             }
 
-            // Publish KF data
-            let kf_data: TOPICS::ekf::DataType = x_est_posterior;
-            let kf_data_json = udp_utils::encode_json(&kf_data);
-            udp_utils::publish(TOPICS::ekf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
+            // Publish EKF data
+            // let kf_data: TOPICS::ekf::DataType = x_est_posterior;
+            // let kf_data_json = udp_utils::encode_json(&kf_data);
+            // udp_utils::publish(TOPICS::ekf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
     // Extended Kalman Filter (STOP) ==================================================
