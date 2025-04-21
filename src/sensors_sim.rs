@@ -188,9 +188,12 @@ fn main() {
             thread::sleep(interval);
 
             // Split up states into manageable subparts
-            let r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+            let mut r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
             let a_lin_w: Vector3<f32> = dx_w.fixed_rows::<3>(0).into(); // [ax, ay, az]
             let v_ang_w: Vector3<f32> = dx_w.fixed_rows::<3>(9).into(); // [angular velocity in roll, pitch, yaw]
+            
+            // Reorient state to NED frame
+            r_ang_w[0] += PI;
 
             // Inverse Kinematics
             let a_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * a_lin_w;

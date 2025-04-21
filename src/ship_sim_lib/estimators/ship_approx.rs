@@ -129,7 +129,7 @@ impl ShipDynamics {
             0.0,  600.0,  0.0,
             0.0,  0.0,  300000.0,
         );
-        let d_ang: f32 = 100000.0;
+        let d_ang: f32 = 1000000.0;
         
         let force_dampening = (-d_lin_matrix) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
@@ -233,8 +233,8 @@ impl ShipDynamics {
         let mut force_u = 5.0 * force_thruster;
         let mut torque_u = 20.0 * torque_thruster;
         self.apply_directional_decay(&mut force_u, v_lin, self.velocity_linear_max, 0.5);
-        self.apply_directional_decay(&mut torque_u, v_ang, self.velocity_angular_max, 0.5);
-        
+        self.apply_directional_decay(&mut torque_u, v_ang, self.velocity_angular_max, 0.5);      
+
         // Calculate total forces ----------
         let force_tot = force_x + force_u;
         let torque_tot = torque_x + torque_u;

@@ -2,11 +2,24 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
+EKF_LAG_SECONDS = 7.5  # adjust this manually for comparing estimate vs gt
+
 # === Paths ===
 log_base = "log/data"
 latest_log_dir = sorted([d for d in os.listdir(log_base) if os.path.isdir(os.path.join(log_base, d))])[-1]
 ekf_path = os.path.join(log_base, latest_log_dir, "ekf.csv")
 truth_path = os.path.join(log_base, latest_log_dir, "x.csv")
+
+# === Load Ground Truth ===
+df_truth = pd.read_csv(
+    truth_path,
+    header=None,
+    names=["timestamp", "vx", "vy", "vz", "wx", "wy", "wz", "px", "py", "pz", "roll", "pitch", "yaw"],
+    sep=",|\s+",
+    engine="python"
+)
+df_truth["timestamp"] = pd.to_datetime(df_truth["timestamp"])
+df_truth["time_sec"] = (df_truth["timestamp"] - df_truth["timestamp"].iloc[0]).dt.total_seconds()
 
 # === Load EKF data ===
 df_ekf = pd.read_csv(
@@ -19,16 +32,7 @@ df_ekf = pd.read_csv(
 df_ekf["timestamp"] = pd.to_datetime(df_ekf["timestamp"])
 df_ekf["time_sec"] = (df_ekf["timestamp"] - df_ekf["timestamp"].iloc[0]).dt.total_seconds()
 
-# === Load Ground Truth ===
-df_truth = pd.read_csv(
-    truth_path,
-    header=None,
-    names=["timestamp", "vx", "vy", "vz", "wx", "wy", "wz", "px", "py", "pz", "roll", "pitch", "yaw"],
-    sep=",|\s+",
-    engine="python"
-)
-df_truth["timestamp"] = pd.to_datetime(df_truth["timestamp"])
-df_truth["time_sec"] = (df_truth["timestamp"] - df_truth["timestamp"].iloc[0]).dt.total_seconds()
+df_ekf["time_sec"] += EKF_LAG_SECONDS
 
 # === Fixed color scheme ===
 axis_colors = {

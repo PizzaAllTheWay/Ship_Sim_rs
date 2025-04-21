@@ -218,9 +218,6 @@ fn h_imu(
     // Linear velocity in IMU frame
     let v_lin_imu = r_body_to_imu * (v_lin_b + v_ang_w.cross(&imu_pos_b));
 
-    // !!! SHOULD THSI BE HERE??? Clamp velocity because it can't be physically bigger than  +-20 m/s otherwise IMU would be bad X-X
-    let v_lin_imu = v_lin_imu.map(|v| v.clamp(-20.0, 20.0));
-
     // Angular velocity in IMU frame
     let gyro = r_body_to_imu * kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
 
@@ -231,7 +228,7 @@ fn h_imu(
     let mut y = Vector7::<f32>::zeros();
     y.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
     y.fixed_rows_mut::<3>(3).copy_from(&gyro);      // gyro
-    y[6] = mag;                                     // yaw angle
+    y[6] = mag;                                                      // yaw angle
 
     y
 }
@@ -348,9 +345,6 @@ fn main() {
             x_est_priori[9] = 0.0; // Roll
             x_est_priori[10] = 0.0; // Pitch
 
-            // Constrain Yaw
-            x_est_priori[11] = estimators_utils::wrap_angle(x_est_priori[11]); // yaw
-
             // Update EKF states
             {
                 let mut x_est_pri = ekf_data_clone.x_est_pri.write().unwrap();
@@ -391,7 +385,7 @@ fn main() {
             let gnss: TOPICS::gnss::DataType = udp_utils::decode_json(json_str);
 
             // EKF States
-            let mut z = gnss;
+            let z = gnss;
             let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
 
@@ -419,10 +413,7 @@ fn main() {
             x_est_posterior[4] = 0.0; // Pitch velocity
             x_est_posterior[9] = 0.0; // Roll
             x_est_posterior[10] = 0.0; // Pitch
-
-            // Constrain Yaw
-            x_est_posterior[11] = estimators_utils::wrap_angle(x_est_posterior[11]); // yaw
-
+            
             // Update EKF states
             {
                 let mut x_est_post = ekf_data_clone.x_est_post.write().unwrap();
@@ -432,11 +423,6 @@ fn main() {
                 let mut P_post = ekf_data_clone.P_post.write().unwrap();
                 *P_post = P_posterior;
             }
-
-            // Publish EKF data
-            // let kf_data: TOPICS::ekf::DataType = x_est_posterior;
-            // let kf_data_json = udp_utils::encode_json(&kf_data);
-            // udp_utils::publish(TOPICS::ekf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
 
@@ -472,7 +458,8 @@ fn main() {
             let dt = last_time.elapsed().as_secs_f32();
             last_time = Instant::now();
 
-            let accel = imu.fixed_rows::<3>(0).into_owned();
+            let mut accel = imu.fixed_rows::<3>(0).into_owned();
+            accel[2] -= 9.81; // Subtract the constant acceleration from earths gravity
             v_lin_imu_integral += dt * accel;
             v_lin_imu_integral = v_lin_imu_integral.map(|v| v.clamp(-10.0, 10.0));
 
@@ -493,20 +480,6 @@ fn main() {
             z[6] = imu[6]; // yaw
 
 
-            
-            // !DELETE TESTING!
-            // let h = h_imu(
-            //     x_est_pri,
-            //     Vector6::from_column_slice(&config.sensors.imu_placement)
-            // );
-            // println!();
-            // println!("estimate: {:?}", x_est_pri);
-            // println!("estimated measurement: {:?}", h);
-            // println!("measurement: {:?}", z);
-            // println!("y: {:?}", (z - h));
-            // estimators_utils::print_matrix("R", &R);
-            // println!();
-            // thread::sleep(Duration::from_millis(10));
 
             // Correction
             let (
@@ -541,11 +514,6 @@ fn main() {
                 let mut P_post = ekf_data_clone.P_post.write().unwrap();
                 *P_post = P_posterior;
             }
-
-            // Publish EKF data
-            // let kf_data: TOPICS::ekf::DataType = x_est_posterior;
-            // let kf_data_json = udp_utils::encode_json(&kf_data);
-            // udp_utils::publish(TOPICS::ekf::PORT, kf_data_json.as_bytes()).expect("Failed to publish x estimate data");
         }
     });
     // Extended Kalman Filter (STOP) ==================================================

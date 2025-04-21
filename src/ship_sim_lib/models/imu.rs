@@ -22,7 +22,7 @@ pub fn simulate(
 ) -> (Vector3<f32>, Vector3<f32>, f32) {
     // Calculate Ground Truth (START) ==================================================
     // Constants
-    let g_w = Vector3::new(0.0, 0.0, 9.81);
+    let g_w = Vector3::new(0.0, 0.0, -9.81);
 
     // Acceleration ----------
     let g_b = r_world_to_body * g_w;
@@ -113,9 +113,9 @@ pub fn simulate(
     let gyro = Vector3::new(
         quantize((gyro + gyro_noise).x, gyro_step),
         quantize((gyro + gyro_noise).y, gyro_step),
-        quantize((gyro + gyro_noise).z, gyro_step),
-    );
-    
+        -quantize((gyro + gyro_noise).z, gyro_step), // Invert yaw angular velocity because its NED frame
+    );    
+
     let mag = quantize(mag + mag_noise, mag_step);
     // Simulate Resolution (START) ==================================================
 
