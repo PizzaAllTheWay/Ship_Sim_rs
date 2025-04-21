@@ -106,7 +106,7 @@ impl ShipDynamics {
     ) -> (Vector3<f32>, Vector3<f32>) {
         // calculate Thruster Forces ----------
         // Tuning parameter for how powerful the thruster is
-        let k_force = 4.5; // [N/rmp]
+        let k_force = 4.0; // [N/rmp]
 
         // Compute thrust force
         let dir_prop = Vector3::new(thruster_angle.cos(), thruster_angle.sin(), 0.0);
@@ -230,8 +230,8 @@ impl ShipDynamics {
 
         // u
         // ?NOTE: Forces need to be prescaled as the original force acting on the body is to small compared to the real model, by scaling up the forces we can approximate our model to the real model a lot better and easier that fine tuning all the parameters and physics individually
-        let mut force_u = 5.0 * force_thruster;
-        let mut torque_u = 20.0 * torque_thruster;
+        let mut force_u = force_thruster;
+        let mut torque_u = torque_thruster;
         self.apply_directional_decay(&mut force_u, v_lin, self.velocity_linear_max, 0.5);
         self.apply_directional_decay(&mut torque_u, v_ang, self.velocity_angular_max, 0.5);      
 

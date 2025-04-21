@@ -216,8 +216,3 @@ pub fn print_matrix<T: std::fmt::Display, const R: usize, const C: usize>(
     println!("]");
 }
 
-pub fn wrap_angle(angle: f32) -> f32 {
-    (angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI) - std::f32::consts::PI
-}
-
-

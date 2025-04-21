@@ -13,7 +13,7 @@ pub fn simulate(
     accel_noise: f32,   // [m/s² / h]
     gyro_noise: f32,    // [rad/s / h]
     mag_noise: f32,     // [rad / h]
-    pub_frequency: f32, // [Hz]
+    dt: f32,            // [Hz]
 
     resolution: u32, // [bit]
     accel_fsr: f32,  // [m/s²]
@@ -52,9 +52,9 @@ pub fn simulate(
 
     // Calculate standard deviations over time
     let s_in_h = 3600.0; // seconds in an hour
-    let accel_std = accel_noise/s_in_h * pub_frequency.sqrt();
-    let gyro_std = gyro_noise/(s_in_h * pub_frequency).sqrt();
-    let mag_std = mag_noise/(s_in_h * pub_frequency).sqrt();
+    let accel_std = accel_noise/s_in_h * dt.sqrt();
+    let gyro_std = gyro_noise/(s_in_h * dt).sqrt();
+    let mag_std = mag_noise/(s_in_h * dt).sqrt();
 
     // Non-linear noise for accel
     let accel_noise = {

@@ -4,7 +4,7 @@ mass = 10000.0 # [kg]
 dimensions = [10.0, 30.0] # [m] (radius, length) Assume ship is a cylinder
 thruster_placement = [-15.0, 0.0, -10.0] # [m] (x, y, z) Back bottom of the ship
 thruster_rpm_max = 500 # [rpm]
-velocity_linear_max = 10.00 # [m/s] Maximum linear speed the ship can reach 
+velocity_linear_max = 20.00 # [m/s] Maximum linear speed the ship can reach 
 velocity_angular_max = 0.15  # [rad/s] Maximum angular speed the ship can reach 
 x_0 = [
     0.0, 0.0, 0.0, # [vx, vy, vz]
@@ -17,13 +17,13 @@ x_0 = [
 fps = 60.0 # [Hz]
 
 [external_forces]
-simulation_frequency = 100.00 # [Hz]
+simulation_frequency = 50.00 # [Hz]
 wind_speed_max = 22.0 # [m/s] Comparable to a strong Gale 
 current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore 
 
 [sensors]
 # Assuming a good consumer grade GNSS
-gnss_pub_frequency = 100.00 # [Hz]
+gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
 # ?NOTE: NED Frame right hand rule. Must place Antenna1 in front and Antenna2 behind otherwise Estimator will confuse front and back antennas and you will get weird estimate :/
 gnss_antenna1_placement = [10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
@@ -41,7 +41,7 @@ gnss_velocity_noise_vertical = 0.2 # [%]
 gnss_velocity_accuracy_vertical = 0.4 # +- [m/s]
 
 # Assuming a good consumer grade IMU
-imu_pub_frequency = 100.00 # [Hz]
+# ?NOTE: IMU publishes at same frequency as the ship simulation frequency ([ship] simulation_frequency)
 # ?NOTE: Because of how Interface portrays information and because of the right hand rule of NED frame, the IMU must be rotate by YAW 180 [deg] or pi [rad] in order for it to keep consistent with positive x and y directions
 imu_placement = [0.0, 0.0, 0.0, 0.0, 0.0, 3.14] # [m] (x, y, z), [rad] (roll, pitch, yaw) (Placement: Forward Looking) placement of the IMU relative to the center of mass on the ship body frame
 imu_noise = 0.30 # [%]
@@ -65,10 +65,10 @@ P_0 = [
 
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
-    5.0, 5.0, 5.0, # Model trust in: [vx, vy, vz]
-    5.0, 5.0, 10.0, # Model trust in: [wx, wy, wz]
+    10.0, 10.0, 10.0, # Model trust in: [vx, vy, vz]
+    10.0, 10.0, 10.0, # Model trust in: [wx, wy, wz]
     5.0, 5.0, 5.0, # Model trust in: [x, y, z]
-    5.0, 5.0, 10.0, # Model trust in: [roll, pitch, yaw]
+    5.0, 5.0, 5.0, # Model trust in: [roll, pitch, yaw]
 ]
 
 # Q = [

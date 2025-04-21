@@ -16,7 +16,7 @@ use std::f32::consts::PI;
 
 // Libraries for multithreading
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::sync::{Arc, RwLock};
 
 
@@ -229,15 +229,12 @@ fn main() {
         // - tol_max: if error is larger, we decrease dt for stability
         // Values chosen to balance speed and accuracy in typical marine dynamics
         let tolerances: (f32, f32) = (1e-5, 1e-3); // (tol_min, tol_max)
-        let dt_limits: (f32, f32) = (0.0001, 0.1); // (min, max) [s]
         let mut dt = 1.0/config.ship.simulation_frequency; // [s]
-
-        let interval = Duration::from_millis((dt * 1000.0) as u64);
+        let dt_limits: (f32, f32) = (dt*0.01, dt); // (min, max) [s]
+        
 
         // Simulation loop ----------
         loop {
-            let start_t = Instant::now();
-
             // Thruster forces ----------
             u = {
                 *thruster_control_clone.read().unwrap()
@@ -283,12 +280,12 @@ fn main() {
             let speed_json = udp_utils::encode_json(&speed);
             udp_utils::publish(TOPICS::speed::PORT, speed_json.as_bytes()).expect("Failed to send speed data");
 
-            // Precise way to calculate interval
-            // This way simulation is at the exact same FPS as GUI 
-            let elapsed_t = start_t.elapsed();
-            if elapsed_t < interval {
-                thread::sleep(interval - elapsed_t);
-            }
+            // Simulation time step
+            let sim_dt_json = udp_utils::encode_json(&dt);
+            udp_utils::publish(TOPICS::sim_dt::PORT, sim_dt_json.as_bytes()).expect("Failed to send simulation time step data");
+
+            // Pause a bit
+            thread::sleep(Duration::from_millis((dt * 1000.0) as u64));
         }
     });
     // Simulate (STOP) ==================================================

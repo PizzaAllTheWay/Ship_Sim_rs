@@ -98,7 +98,7 @@ impl ShipDynamics {
     ) -> (Vector3<f32>, Vector3<f32>) {
         // calculate Thruster Forces ----------
         // Tuning parameter for how powerful the thruster is
-        let k_force = 4.5; // [N/rmp]
+        let k_force = 9.5; // [N/rmp]
 
         // Compute thrust force
         let dir_prop = Vector3::new(thruster_angle.cos(), thruster_angle.sin(), 0.0);

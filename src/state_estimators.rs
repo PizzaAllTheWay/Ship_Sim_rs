@@ -1,7 +1,6 @@
 // Custom libraries
 use ship_sim_lib::estimators::ship_approx;
 use ship_sim_lib::estimators::ekf;
-use ship_sim_lib::estimators::estimators_utils;
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::TOPICS;
@@ -288,6 +287,7 @@ fn main() {
     let R_imu_0: Matrix7x7<f32> = Matrix7x7::<f32>::from_diagonal(&R_imu_vector);
     #[allow(non_snake_case)]
     let R_imu = Arc::new(RwLock::new(R_imu_0));
+    let v_lin_imu = Arc::new(RwLock::new(Vector3::<f32>::zeros()));
     
     // Predict using approximated ship model ----------
     let ekf_data_clone = ekf_data.clone();
@@ -372,6 +372,9 @@ fn main() {
     // Correct using GNSS ----------
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]
+    let R_imu_clone = R_imu.clone();
+    let v_lin_imu_clone = v_lin_imu.clone();
+    #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
         // Get confidence matrix for our measurements
@@ -413,7 +416,26 @@ fn main() {
             x_est_posterior[4] = 0.0; // Pitch velocity
             x_est_posterior[9] = 0.0; // Roll
             x_est_posterior[10] = 0.0; // Pitch
-            
+
+            // In addition we must update IMU data to absolute certainty values from GNSS where it applies
+            // Mainly to linear velocity IMU integral and drift can be reset
+            {
+                // Convert measured GNSS velocity to IMU velocity integral
+                let z_imu = h_imu(
+                    x_est_posterior.clone(),
+                    Vector6::from_column_slice(&config.sensors.imu_placement),
+                );
+
+                let z_imu_v = z_imu.fixed_rows::<3>(0).into_owned();
+
+                let mut v_lin_imu_write = v_lin_imu_clone.write().unwrap();
+                *v_lin_imu_write = z_imu_v;
+            } 
+            {
+                let mut R_imu_write = R_imu_clone.write().unwrap();
+                *R_imu_write = R_imu_0;
+            }
+
             // Update EKF states
             {
                 let mut x_est_post = ekf_data_clone.x_est_post.write().unwrap();
@@ -430,11 +452,11 @@ fn main() {
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]
     let R_imu_clone = R_imu.clone();
+    let v_lin_imu_clone = v_lin_imu.clone();
     #[allow(non_snake_case)]
     thread::spawn(move || {
         // Initialize system ----------
         // Integration states
-        let mut v_lin_imu_integral = Vector3::<f32>::zeros();
         let mut last_time = Instant::now();
 
         // Get the IMU drift
@@ -452,22 +474,25 @@ fn main() {
             let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
 
-
-
             // Integrate acceleration to velocity
             let dt = last_time.elapsed().as_secs_f32();
             last_time = Instant::now();
-
+            
             let mut accel = imu.fixed_rows::<3>(0).into_owned();
             accel[2] -= 9.81; // Subtract the constant acceleration from earths gravity
-            v_lin_imu_integral += dt * accel;
-            v_lin_imu_integral = v_lin_imu_integral.map(|v| v.clamp(-10.0, 10.0));
+
+            let mut v_lin_imu = *v_lin_imu_clone.read().unwrap();
+            v_lin_imu += dt * accel;
 
             // Add drift to the measurement noise matrix
             let mut R: Matrix7x7<f32> = *R_imu_clone.read().unwrap();
-            //R = R.component_mul(&imu_drift_matrix);
+            R = R.component_mul(&imu_drift_matrix);
 
-            // Update measurement noise matrix with new noise immediately 
+            // Update IMU drift matrix and velocity immediately 
+            {
+                let mut v_lin_imu_write = v_lin_imu_clone.write().unwrap();
+                *v_lin_imu_write = v_lin_imu;
+            } 
             {
                 let mut R_imu_write = R_imu_clone.write().unwrap();
                 *R_imu_write = R;
@@ -475,11 +500,9 @@ fn main() {
             
             // Build vector measurement with integrated acceleration
             let mut z = Vector7::<f32>::zeros();
-            z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu_integral);                       // velocity
-            z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3));  // gyro
+            z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
+            z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
             z[6] = imu[6]; // yaw
-
-
 
             // Correction
             let (

@@ -107,6 +107,14 @@ pub mod TOPICS {
         pub type DataType = Vector2<f32>;
     }
 
+    // Data Type [f32]:
+    // Simulation time step
+    pub mod sim_dt {
+        use f32;
+        pub const PORT: u16 = 5573;
+        pub type DataType = f32;
+    }
+
     // Data Type [Vector9<f32>]:
     // antenna 1 position (World Frame): [x, y, z]
     // antenna 2 position (World Frame): [x, y, z]

@@ -40,7 +40,6 @@ struct SensorsConfig {
     gnss_velocity_noise_vertical: f32,
     gnss_velocity_accuracy_vertical: f32,
 
-    imu_pub_frequency: f32,
     imu_placement: [f32; 6],
     imu_noise: f32,
     imu_accel_noise: f32,
@@ -102,24 +101,16 @@ fn main() {
     });
     // GET - DX States (STOP) ==================================================
 
+
+
     // SEND - GNSS Data (START) ==================================================
     let x_clone = x.clone();
     thread::spawn(move || {
         let dt = 1.0/config.sensors.gnss_pub_frequency; // [s]
         
         loop {
-            // Read the ground truth and wait a bit before publishing with a bit of a random time delay
-            // This simulates the random process of sending and receiving GNSS data with a time lag to make it more realistic
-            let x_w = *x_clone.read().unwrap();
-
-            let variance = config.sensors.gnss_pub_variance;
-            let mut rng = rand::thread_rng();
-            let jitter_factor: f32 = rng.gen_range(1.0 - variance..=1.0 + variance);
-            let jittered_dt = dt * jitter_factor;
-            let interval = Duration::from_millis((jittered_dt * 1000.0) as u64);
-            thread::sleep(interval);
-
             // Split up states into manageable subparts
+            let x_w = *x_clone.read().unwrap();
             let v_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(0).into(); // [vx, vy, vz]
             let r_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(6).into(); // [x, y, z]
             let mut r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
@@ -168,6 +159,15 @@ fn main() {
             let gnss_json = udp_utils::encode_json(&gnss);
 
             udp_utils::publish(TOPICS::gnss::PORT, gnss_json.as_bytes()).expect("Failed to publish antenna1 data");
+            
+            // Wait a bit before publishing with a bit of a random time delay
+            // This simulates the random process of sending and receiving GNSS data with a time lag to make it more realistic
+            let variance = config.sensors.gnss_pub_variance;
+            let mut rng = rand::thread_rng();
+            let jitter_factor: f32 = rng.gen_range(1.0 - variance..=1.0 + variance);
+            let jittered_dt = dt * jitter_factor;
+            let interval = Duration::from_millis((jittered_dt * 1000.0) as u64);
+            thread::sleep(interval);
         }
     });
     // SEND - GNSS Data (STOP) ==================================================
@@ -175,19 +175,17 @@ fn main() {
     // SEND - IMU Data (START) ==================================================
     let x_clone = x.clone();
     let dx_clone = dx.clone();
-    thread::spawn(move || {
-        let dt = 1.0/config.sensors.imu_pub_frequency; // [s]
-        
+    thread::spawn(move || {        
         loop {
-            // Read the ground truth and wait a bit before publishing
-            // IMU has a consistent publishing rate so no need for variation in delay
-            let x_w = *x_clone.read().unwrap();
-            let dx_w = *dx_clone.read().unwrap();
-
-            let interval = Duration::from_millis((dt * 1000.0) as u64);
-            thread::sleep(interval);
+            // Wait for simulation step to end and get that simulations step size
+            // Only then proceed with simulating IMU for accurate acceleration
+            let msg = udp_utils::subscribe(TOPICS::sim_dt::PORT).unwrap();
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let sim_dt: TOPICS::sim_dt::DataType = udp_utils::decode_json(json_str);
 
             // Split up states into manageable subparts
+            let x_w = *x_clone.read().unwrap();
+            let dx_w = *dx_clone.read().unwrap();
             let mut r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
             let a_lin_w: Vector3<f32> = dx_w.fixed_rows::<3>(0).into(); // [ax, ay, az]
             let v_ang_w: Vector3<f32> = dx_w.fixed_rows::<3>(9).into(); // [angular velocity in roll, pitch, yaw]
@@ -218,7 +216,7 @@ fn main() {
                 config.sensors.imu_accel_noise,
                 config.sensors.imu_gyro_noise,
                 config.sensors.imu_mag_noise,
-                config.sensors.imu_pub_frequency,
+                sim_dt,
 
                 config.sensors.imu_resolution,
                 config.sensors.imu_accel_fsr,
@@ -235,6 +233,10 @@ fn main() {
             let imu_json = udp_utils::encode_json(&imu);
 
             udp_utils::publish(TOPICS::imu::PORT, imu_json.as_bytes()).expect("Failed to publish imu data");
+            
+            // Wait a bit before publishing
+            // IMU has a consistent publishing rate so no need for variation in delay
+            thread::sleep(Duration::from_millis((sim_dt * 1000.0) as u64));
         }
     });
     // SEND - IMU Data (STOP) ==================================================
