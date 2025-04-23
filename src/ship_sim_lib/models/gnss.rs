@@ -14,17 +14,15 @@ use rand::Rng;
 /// # Returns
 /// A tuple with two 3D vectors: simulated positions of antenna1 and antenna2
 pub fn simulate(
-    pos_gt: Vector3<f32>,
-    vel_gt: Vector3<f32>,
-
-    antenna1_placement: Vector3<f32>,
-    antenna2_placement: Vector3<f32>,
-
+    r_lin_antenna1_w: Vector3<f32>, // [x, y, z] position of gnss antenna in world frame
+    r_lin_antenna2_w: Vector3<f32>, // [x, y, z] position of gnss antenna in world frame
     position_noise_horizontal: f32, // XY Plane
     position_accuracy_horizontal: f32, // XY Plane
     position_noise_vertical: f32, // Z Direction (UP/DOWN)
     position_accuracy_vertical: f32, // Z Direction (UP/DOWN)
 
+    v_lin_antenna1_w: Vector3<f32>, // [vx, vy, vz] velocity of gnss antenna in world frame
+    v_lin_antenna2_w: Vector3<f32>, // [vx, vy, vz] velocity of gnss antenna in world frame
     velocity_noise_horizontal: f32, // XY Plane
     velocity_accuracy_horizontal: f32, // XY Plane
     velocity_noise_vertical: f32, // Z Direction (UP/DOWN)
@@ -97,8 +95,8 @@ pub fn simulate(
     };
 
     // Final simulated antenna positions = true pos + offset + noisy distortion
-    let antenna1 = pos_gt + antenna1_placement + nonlinear_noise();
-    let antenna2 = pos_gt + antenna2_placement + nonlinear_noise();
+    let pos_antenna1 = r_lin_antenna1_w + nonlinear_noise();
+    let pos_antenna2 = r_lin_antenna2_w + nonlinear_noise();
     // Position (STOP) ==================================================
 
 
@@ -133,10 +131,15 @@ pub fn simulate(
         Vector3::new(f(vx, vy, vz), f(vx, vy, vz), f(vx, vy, vz))
     };
     
-    let velocity = vel_gt + nonlinear_noise();
+    // Simulate antenna velocity noise
+    let vel_antenna1 = v_lin_antenna1_w + nonlinear_noise();
+    let vel_antenna2 = v_lin_antenna2_w + nonlinear_noise();
+    let gnss_speed = (vel_antenna1 + vel_antenna2)/2.0;
     // Speed (STOP) ==================================================
-
-
     
-    return (antenna1, antenna2, velocity);
+    return (
+        pos_antenna1,
+        pos_antenna2,
+        gnss_speed,
+    );
 }

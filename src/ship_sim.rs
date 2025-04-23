@@ -1,9 +1,10 @@
 // Custom libraries
-use ship_sim_lib::models::ship;
+//use ship_sim_lib::models::ship;
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::simulation::solver;
 use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::{TOPICS, Vector12};
+use ship_sim_lib::estimators::ship_approx;
 
 // Library for data formatting
 use serde::Deserialize;
@@ -42,8 +43,13 @@ struct Config {
 
 // Our non linear ODE ----------
 // x_dot = f(x, u, w)
+// pub struct ODE {
+//     pub ship_dynamic: ship::ShipDynamics,
+//     pub x: Vector12<f32>,
+// }
+
 pub struct ODE {
-    pub ship_dynamic: ship::ShipDynamics,
+    pub ship_dynamic: ship_approx::ShipDynamics,
     pub x: Vector12<f32>,
 }
 
@@ -63,13 +69,22 @@ impl ODE {
 
     ) -> Self {
         // Initialize ship dynamics        
-        let ship_dynamic = ship::ShipDynamics::new(
+        // let ship_dynamic = ship::ShipDynamics::new(
+        //     ship_mass,
+        //     ship_dimensions,
+        //     thruster_placement,
+        //     velocity_linear_max,
+        //     velocity_angular_max,
+        // );
+
+        let ship_dynamic = ship_approx::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
             thruster_placement,
             velocity_linear_max,
             velocity_angular_max,
         );
+
 
         // Initialize starting conditions
         let x = x_0;
@@ -93,9 +108,9 @@ impl ODE {
 
         // Split up states into manageable subparts
         let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
-        let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
+        let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
         let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
-        let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+        let euler: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
         let thruster_rpm: f32 = u[0];
         let thruster_angle: f32 = u[1];
@@ -103,37 +118,48 @@ impl ODE {
         let w_wind_w: Vector3<f32> = w.wind; // [vx, vy, vz]
         let w_current_w: Vector3<f32> = w.current; // [vx, vy, vz]
 
-        // Inverse kinematics
-        let v_lin_b = kinematics::linear_velocity_world_to_body(r_ang_w, v_lin_w);
-        let v_ang_b = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
+        // Convert to body frame
+        let r_ang_b: Vector3<f32> = euler;
+        let r_lin_b: Vector3<f32> = kinematics::rot_world_to_body(euler) * r_lin_w;
+        let v_ang_b: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
+        let v_lin_b: Vector3<f32> = kinematics::linear_velocity_world_to_body(euler, v_lin_w);
+ 
+        let w_wind_b = kinematics::linear_velocity_world_to_body(euler, w_wind_w);
+        let w_current_b = kinematics::linear_velocity_world_to_body(euler, w_current_w);
         
-        let w_wind_b = kinematics::linear_velocity_world_to_body(r_ang_w, w_wind_w);
-        let w_current_b = kinematics::linear_velocity_world_to_body(r_ang_w, w_current_w);
-        
-        let gravity_b = kinematics::linear_accel_world_to_body(r_ang_w, gravity_w);
+        let gravity_b = kinematics::linear_accel_world_to_body(euler, gravity_w);
 
         // Dynamics
+        // let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
+        //     thruster_rpm,
+        //     thruster_angle,
+        //     v_lin_b,
+        //     v_ang_b,
+        //     w_wind_b,
+        //     w_current_b,
+        //     gravity_b,
+        //     r_lin_w,
+        // );
+
         let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
             thruster_rpm,
             thruster_angle,
             v_lin_b,
             v_ang_b,
-            w_wind_b,
-            w_current_b,
             gravity_b,
             r_lin_w,
         );
 
-        // Kinematics
-        let a_lin_w = kinematics::linear_accel_body_to_world(r_ang_w, a_lin_b,);
-        let a_ang_w = kinematics::angular_accel_body_to_world(r_ang_w, a_ang_b);
-
+        // Convert to world frame
+        let a_lin_w = kinematics::linear_accel_body_to_world(euler, a_lin_b,);
+        let euler_dot_dot = kinematics::angular_accel_body_to_euler_dot_dot(euler, euler_dot, a_ang_b);
+        
         // Structure return states properly
         let mut x_dot: Vector12<f32> = Vector12::<f32>::zeros();
-        x_dot.fixed_rows_mut::<3>(0).copy_from(&a_lin_w); // [ax, ay, az]
-        x_dot.fixed_rows_mut::<3>(3).copy_from(&a_ang_w); // [angular acceleration in roll, pitch, yaw]
-        x_dot.fixed_rows_mut::<3>(6).copy_from(&v_lin_w); // [vx, vy, vz]
-        x_dot.fixed_rows_mut::<3>(9).copy_from(&v_ang_w); // [angular velocity in roll, pitch, yaw]
+        x_dot.fixed_rows_mut::<3>(0).copy_from(&a_lin_w);       // [ax, ay, az]
+        x_dot.fixed_rows_mut::<3>(3).copy_from(&euler_dot_dot); // [angular acceleration in roll, pitch, yaw]
+        x_dot.fixed_rows_mut::<3>(6).copy_from(&v_lin_w);       // [vx, vy, vz]
+        x_dot.fixed_rows_mut::<3>(9).copy_from(&euler_dot);     // [angular velocity in roll, pitch, yaw]
         
         return x_dot;
     }

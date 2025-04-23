@@ -50,6 +50,10 @@ dx_data = load_data(
     ],
 )
 
+print(imu_data)
+print(x_data)
+print(dx_data)
+
 
 
 # === Ground Truth Values from dx and x ===

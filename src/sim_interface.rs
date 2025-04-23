@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 // Libraries for math
 use std::f32::consts::PI;
+use nalgebra::Vector3;
 
 
 
@@ -98,22 +99,28 @@ fn main() {
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
             let gnss: TOPICS::gnss::DataType = udp_utils::decode_json(json_str);
 
-            // Parse data
-            let antenna1 = gnss.fixed_rows::<3>(0).into();
-            let antenna2 = gnss.fixed_rows::<3>(3).into();
-            let velocity = gnss.fixed_rows::<3>(6).into();
+            // Parse raw GNSS positions (in ship body frame)
+            let raw_antenna1: Vector3<f32> = gnss.fixed_rows::<3>(0).into();
+            let raw_antenna2: Vector3<f32> = gnss.fixed_rows::<3>(3).into();
+            let velocity: Vector3<f32> = gnss.fixed_rows::<3>(6).into();
 
-            // Append to sensor position history
+            // Rotate points
+            // Because of how GUI is set up the screen displays mirrored axis => computer graphics != modelling and simulation
+            // This is why we must invert antennas from body, meaning antenna 1 becomes antenna 2 for mirrored axis and vice versa
+            let antenna1_gui = raw_antenna2; // Inverted
+            let antenna2_gui = raw_antenna1; // Inverted
+
+            // Append to transformed GNSS history (used directly by GUI, no redraw transform)
             {
                 let mut history = gui_state_clone.gnss_antenna1_history.write().unwrap();
-                history.push(antenna1);
+                history.push(antenna1_gui);
             }
             {
                 let mut history = gui_state_clone.gnss_antenna2_history.write().unwrap();
-                history.push(antenna2);
+                history.push(antenna2_gui);
             }
 
-            // Update GNSS Velocity
+            // GNSS velocity update
             {
                 let mut gnss_velocity = gui_state_clone.gnss_velocity.write().unwrap();
                 *gnss_velocity = velocity;

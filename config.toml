@@ -7,10 +7,10 @@ thruster_rpm_max = 500 # [rpm]
 velocity_linear_max = 20.00 # [m/s] Maximum linear speed the ship can reach 
 velocity_angular_max = 0.15  # [rad/s] Maximum angular speed the ship can reach 
 x_0 = [
-    0.0, 0.0, 0.0, # [vx, vy, vz]
-    0.0, 0.0, 0.0, # [wx, wy, wz]
-    0.0, 0.0, 0.0, # [x, y, z]
-    0.0, 0.0, 0.0, # [roll, pitch, yaw]
+    0.0, 0.0,   0.0, # [vx, vy, vz]
+    0.0, 0.0,   0.0, # [wx, wy, wz]
+    0.0, 0.0,   0.0, # [x, y, z]
+    0.0, 0.0,  1.57, # [roll, pitch, yaw] (PI/2 to face forward in Y axis)
 ]
 
 [interface]
@@ -26,8 +26,8 @@ current_speed_max = 3.0 # [m/s] Comparable to tidal currents near a shore
 gnss_pub_frequency = 1.00 # [Hz]
 gnss_pub_variance = 0.1 # [%] variation in publishing frequency
 # ?NOTE: NED Frame right hand rule. Must place Antenna1 in front and Antenna2 behind otherwise Estimator will confuse front and back antennas and you will get weird estimate :/
-gnss_antenna1_placement = [10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
-gnss_antenna2_placement = [-10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
+gnss_antenna1_placement = [-10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Forward) placement of the antenna relative to the center of mass on the ship body frame
+gnss_antenna2_placement = [10.0, 0.0, -3.0] # [m] (x, y, z) (Placement: Backwards) placement of the antenna relative to the center of mass on the ship body frame 
 # ?NOTE: Since most Satellites orbit around equator, most likely satellite for GNSS will be from this group of satellites, this means they are more accurate horizontally than vertically 
 # ?NOTE: Horizontal => XY Plane
 # ?NOTE: Vertical => Z Direction (UP/DOWN)
@@ -43,7 +43,8 @@ gnss_velocity_accuracy_vertical = 0.4 # +- [m/s]
 # Assuming a good consumer grade IMU
 # ?NOTE: IMU publishes at same frequency as the ship simulation frequency ([ship] simulation_frequency)
 # ?NOTE: Because of how Interface portrays information and because of the right hand rule of NED frame, the IMU must be rotate by YAW 180 [deg] or pi [rad] in order for it to keep consistent with positive x and y directions
-imu_placement = [0.0, 0.0, 0.0, 0.0, 0.0, 3.14] # [m] (x, y, z), [rad] (roll, pitch, yaw) (Placement: Forward Looking) placement of the IMU relative to the center of mass on the ship body frame
+imu_placement = [0.0, 0.0, 0.0] # [m] (x, y, z) NOTE: relative to ships frame
+imu_rotation = [0.0, 0.0, 3.14] # [rad] (roll, pitch, yaw) NOTE: relative to its own internal frame (Placement: Forward Looking) placement of the IMU relative to the center of mass on the ship body frame
 imu_noise = 0.30 # [%]
 imu_accel_noise = 0.05 # [m/s²]
 imu_gyro_noise = 0.005 # [rad/s / h]
@@ -71,14 +72,6 @@ Q = [
     5.0, 5.0, 5.0, # Model trust in: [roll, pitch, yaw]
 ]
 
-# Q = [
-#     2.0, 2.0, 1.0, # Model trust in: [vx, vy, vz]
-#     1.0, 1.0, 5.0, # Model trust in: [wx, wy, wz]
-#     5.0, 5.0, 3.0, # Model trust in: [x, y, z]
-#     3.0, 3.0, 10.0, # Model trust in: [roll, pitch, yaw]
-# ]
-
-
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [
     1.600936, 1.619552, 5.448326, # Measurement trust in: antenna1 [x, y, z]
@@ -91,7 +84,6 @@ R_imu = [
     0.0000000001637147, 0.0000000002326225, 0.0000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
     0.0000000096122428,                                         # Measurement trust in: magnetometer [yaw]
 ]
-
 imu_drift = [
     0.0000028790977229, 0.0000103167668384, 0.0000672533558569, # accelerometer drift [m/s²] 
     0.0000003081781019, 0.0000000021636393, 0.0000002311335764, # gyroscope drift [rad/s]

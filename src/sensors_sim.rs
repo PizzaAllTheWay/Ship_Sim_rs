@@ -16,7 +16,6 @@ use std::time::Duration;
 use std::sync::{Arc, RwLock};
 
 // Library for maths
-use std::f32::consts::PI;
 use nalgebra::Vector3;
 
 // Library for randomness
@@ -40,7 +39,8 @@ struct SensorsConfig {
     gnss_velocity_noise_vertical: f32,
     gnss_velocity_accuracy_vertical: f32,
 
-    imu_placement: [f32; 6],
+    imu_placement: [f32; 3],
+    imu_rotation: [f32; 3],
     imu_noise: f32,
     imu_accel_noise: f32,
     imu_gyro_noise: f32,
@@ -109,52 +109,91 @@ fn main() {
         let dt = 1.0/config.sensors.gnss_pub_frequency; // [s]
         
         loop {
+            // Get current world state
+            let x = *x_clone.read().unwrap();
+
             // Split up states into manageable subparts
-            let x_w = *x_clone.read().unwrap();
-            let v_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(0).into(); // [vx, vy, vz]
-            let r_lin_w: Vector3<f32> = x_w.fixed_rows::<3>(6).into(); // [x, y, z]
-            let mut r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+            let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
+            let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
+            let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
+            let euler: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
-            // Reorient state to NED frame
-            r_ang_w[0] += PI;
+            // Convert Ship to body frame
+            let v_ang_ship: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
+            let v_lin_ship: Vector3<f32> = kinematics::linear_velocity_world_to_body(euler, v_lin_w);
 
-            // Inverse Kinematics
-            let r_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * r_lin_w;
+            // Convert Ship to object frame
+            let antenna1_velocity_in_ship = Vector3::<f32>::zeros(); // Antenna sits tight, no linear velocity in the ship
+            let antenna2_velocity_in_ship = Vector3::<f32>::zeros(); // Antenna sits tight, no linear velocity in the ship
+            let antenna1_placement_in_ship = Vector3::from(config.sensors.gnss_antenna1_placement);
+            let antenna2_placement_in_ship = Vector3::from(config.sensors.gnss_antenna2_placement);
+            let v_lin_antenna1: Vector3<f32> = kinematics::linear_velocity_body_to_object(
+                v_lin_ship,
+                antenna1_velocity_in_ship,
+                v_ang_ship,
+                antenna1_placement_in_ship,
+            );
+            let v_lin_antenna2: Vector3<f32> = kinematics::linear_velocity_body_to_object(
+                v_lin_ship,
+                antenna2_velocity_in_ship,
+                v_ang_ship,
+                antenna2_placement_in_ship,
+            );
 
-            // Simulate gnss
-            let (gnss_antenna1_b, gnss_antenna2_b, gnss_speed_w) = gnss::simulate(
-                r_lin_b, 
-                v_lin_w,
+            // Convert Antennas to body frame
+            let r_lin_antenna1_b: Vector3<f32> = antenna1_placement_in_ship;
+            let r_lin_antenna2_b: Vector3<f32> = antenna2_placement_in_ship;
+            let v_lin_antenna1_b: Vector3<f32> = kinematics::linear_velocity_object_to_body(
+                v_lin_antenna1,
+                antenna1_velocity_in_ship,
+                v_ang_ship,
+                antenna1_placement_in_ship,
+            );
+            let v_lin_antenna2_b: Vector3<f32> = kinematics::linear_velocity_object_to_body(
+                v_lin_antenna2,
+                antenna2_velocity_in_ship,
+                v_ang_ship,
+                antenna2_placement_in_ship,
+            );
 
-                Vector3::from(config.sensors.gnss_antenna1_placement),
-                Vector3::from(config.sensors.gnss_antenna2_placement),
+            // Convert Antennas to world frame
+            let r_lin_antenna1_w: Vector3<f32> = kinematics::rot_body_to_world(euler) * r_lin_antenna1_b + r_lin_w;
+            let r_lin_antenna2_w: Vector3<f32> = kinematics::rot_body_to_world(euler) * r_lin_antenna2_b + r_lin_w;
+            let v_lin_antenna1_w: Vector3<f32> = kinematics::linear_velocity_body_to_world(euler, v_lin_antenna1_b);
+            let v_lin_antenna2_w: Vector3<f32> = kinematics::linear_velocity_body_to_world(euler, v_lin_antenna2_b);
 
+            // Simulate GNSS
+            let (
+                gnss_antenna1,
+                gnss_antenna2,
+                gnss_speed,
+            ) = gnss::simulate(
+                r_lin_antenna1_w,
+                r_lin_antenna2_w,
                 config.sensors.gnss_position_noise_horizontal, 
                 config.sensors.gnss_position_accuracy_horizontal,
                 config.sensors.gnss_position_noise_vertical, 
                 config.sensors.gnss_position_accuracy_vertical,
 
+                v_lin_antenna1_w,
+                v_lin_antenna2_w,
                 config.sensors.gnss_velocity_noise_horizontal, 
                 config.sensors.gnss_velocity_accuracy_horizontal,
                 config.sensors.gnss_velocity_noise_vertical, 
                 config.sensors.gnss_velocity_accuracy_vertical,
             );
 
-            // Kinematics
-            let gnss_antenna1_w = kinematics::r_body_to_world(r_ang_w) * gnss_antenna1_b;
-            let gnss_antenna2_w = kinematics::r_body_to_world(r_ang_w) * gnss_antenna2_b;
-
             // Publish data
             let mut gnss: TOPICS::gnss::DataType = TOPICS::gnss::DataType::zeros();
-            gnss[0] = gnss_antenna1_w[0];
-            gnss[1] = gnss_antenna1_w[1];
-            gnss[2] = gnss_antenna1_w[2];
-            gnss[3] = gnss_antenna2_w[0];
-            gnss[4] = gnss_antenna2_w[1];
-            gnss[5] = gnss_antenna2_w[2];
-            gnss[6] = gnss_speed_w[0];
-            gnss[7] = gnss_speed_w[1];
-            gnss[8] = gnss_speed_w[2];
+            gnss[0] = gnss_antenna1[0];
+            gnss[1] = gnss_antenna1[1];
+            gnss[2] = gnss_antenna1[2];
+            gnss[3] = gnss_antenna2[0];
+            gnss[4] = gnss_antenna2[1];
+            gnss[5] = gnss_antenna2[2];
+            gnss[6] = gnss_speed[0];
+            gnss[7] = gnss_speed[1];
+            gnss[8] = gnss_speed[2];
 
             let gnss_json = udp_utils::encode_json(&gnss);
 
@@ -183,34 +222,54 @@ fn main() {
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
             let sim_dt: TOPICS::sim_dt::DataType = udp_utils::decode_json(json_str);
 
-            // Split up states into manageable subparts
-            let x_w = *x_clone.read().unwrap();
-            let dx_w = *dx_clone.read().unwrap();
-            let mut r_ang_w: Vector3<f32> = x_w.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
-            let a_lin_w: Vector3<f32> = dx_w.fixed_rows::<3>(0).into(); // [ax, ay, az]
-            let v_ang_w: Vector3<f32> = dx_w.fixed_rows::<3>(9).into(); // [angular velocity in roll, pitch, yaw]
+            // Get current world state
+            let x = *x_clone.read().unwrap();
+            let dx = *dx_clone.read().unwrap();
+
+            // Get constants
+            let g: Vector3<f32> = Vector3::<f32>::new(0.0, 0.0, 9.81);
+            let mag_north_w: Vector3<f32> = Vector3::new(0.0, 1.0, 0.0);
             
-            // Reorient state to NED frame
-            r_ang_w[0] += PI;
+            // Split up states into manageable subparts
+            let mut a_lin_w: Vector3<f32> = dx.fixed_rows::<3>(0).into(); // [ax, ay, az]
+            a_lin_w += g; // Add gravity
+            let euler_dot_dot: Vector3<f32> = dx.fixed_rows::<3>(3).into(); // [angular acceleration in roll, pitch, yaw]
+            let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
+            let euler: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
-            // Inverse Kinematics
-            let a_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * a_lin_w;
-            let v_ang_b: Vector3<f32> = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
+            // Convert Ship to body frame
+            let v_ang_ship: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
+            let a_ang_ship: Vector3<f32> = kinematics::euler_dot_dot_to_angular_accel_body(euler, euler_dot, euler_dot_dot);
+            let a_lin_ship: Vector3<f32> = kinematics::linear_accel_world_to_body(euler, a_lin_w);
+            let mag_north_ship: Vector3<f32> = kinematics::rot_world_to_body(euler) * mag_north_w;
 
-            let imu_pos_b = Vector3::from_column_slice(&config.sensors.imu_placement[0..3]);
-            let imu_rot_b = Vector3::from_column_slice(&config.sensors.imu_placement[3..6]);
+            // Convert Ship to object frame
+            let imu_acceleration_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no linear acceleration in the ship
+            let imu_placement_in_ship = Vector3::from(config.sensors.imu_placement); // IMU placement relative to ship
+            let imu_velocity_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no linear velocity in the ship
+            let mut a_lin_imu: Vector3<f32> = kinematics::linear_accel_object(
+                a_lin_ship, 
+                imu_acceleration_in_ship, 
+                a_ang_ship, 
+                imu_placement_in_ship, 
+                v_ang_ship, 
+                imu_velocity_in_ship,
+            );
+            let imu_rotation = Vector3::from(config.sensors.imu_rotation); // IMU Rotation relative to ist own internal frame
+            a_lin_imu = kinematics::rot_body_to_object(imu_rotation) * a_lin_imu; // Need to rotate to internal frame else we get wrong acceleration frame
 
-            let r_body_to_imu = kinematics::r_body_to_object(imu_rot_b);
-            let r_world_to_body = kinematics::r_world_to_body(r_ang_w); // ship's current rotation
+            let imu_v_ang_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no angular velocity in the ship
+            let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
+            v_ang_imu = kinematics::rot_body_to_object(imu_rotation) * v_ang_imu; // Need to rotate to internal frame else we get wrong acceleration frame
+
+            let mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
+            let mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
 
             // Simulate gnss
             let (imu_accel, imu_gyro, imu_mag) = imu::simulate(
-                a_lin_b,
-                v_ang_b,
-                r_ang_w[2],
-                imu_pos_b,
-                r_body_to_imu,
-                r_world_to_body,
+                a_lin_imu,
+                v_ang_imu,
+                mag_imu,
 
                 config.sensors.imu_noise,
                 config.sensors.imu_accel_noise,

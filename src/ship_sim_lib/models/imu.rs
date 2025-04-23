@@ -1,13 +1,10 @@
-use nalgebra::{Vector3, Matrix3};
+use nalgebra::Vector3;
 use rand_distr::{Normal, Distribution};
 
 pub fn simulate(
-    a_lin: Vector3<f32>,           // linear acceleration in body frame [m/s²]
-    v_ang: Vector3<f32>,           // angular velocity in body frame [rad/s]
-    r_ang_z: f32,                  // yaw angle from full r_ang
-    imu_pos_b: Vector3<f32>,       // IMU position in body frame
-    r_body_to_imu: Matrix3<f32>,   // precomputed rotation: body → imu
-    r_world_to_body: Matrix3<f32>, // precomputed rotation: world → body
+    accel_gt: Vector3<f32>, // linear acceleration in IMU frame [m/s²]
+    gyro_gt: Vector3<f32>,  // angular velocity in IMU frame [rad/s]
+    mag_gt: f32,            // yaw angle in IMU frame
 
     noise: f32,         // [%]
     accel_noise: f32,   // [m/s² / h]
@@ -20,31 +17,6 @@ pub fn simulate(
     gyro_fsr: f32,   // [rad/s]
     mag_fsr: f32,    // [rad]
 ) -> (Vector3<f32>, Vector3<f32>, f32) {
-    // Calculate Ground Truth (START) ==================================================
-    // Constants
-    let g_w = Vector3::new(0.0, 0.0, -9.81);
-
-    // Acceleration ----------
-    let g_b = r_world_to_body * g_w;
-    let mut accel_b = a_lin + g_b;
-
-    // Add centripetal acceleration: a_c = ω × (ω × r)
-    let omega_cross_r = v_ang.cross(&imu_pos_b);
-    let omega_cross_omega_cross_r = v_ang.cross(&omega_cross_r);
-    accel_b += omega_cross_omega_cross_r;
-
-    // Transform to IMU frame
-    let accel = r_body_to_imu * accel_b;
-
-    // Angular Velocity ----------
-    let gyro = r_body_to_imu * v_ang;
-
-    // Yaw Angle ----------
-    let mag = r_ang_z;
-    // Calculate Ground Truth (STOP) ==================================================
-
-
-
     // Simulate Noise (START) ==================================================
     // Generate pure randomness
     let mut rng = rand::thread_rng();
@@ -105,18 +77,18 @@ pub fn simulate(
     let mag_step   = mag_fsr   / levels as f32;
     
     let accel = Vector3::new(
-        quantize((accel + accel_noise).x, accel_step),
-        quantize((accel + accel_noise).y, accel_step),
-        quantize((accel + accel_noise).z, accel_step),
+        quantize((accel_gt + accel_noise).x, accel_step),
+        quantize((accel_gt + accel_noise).y, accel_step),
+        quantize((accel_gt + accel_noise).z, accel_step),
     );
     
     let gyro = Vector3::new(
-        quantize((gyro + gyro_noise).x, gyro_step),
-        quantize((gyro + gyro_noise).y, gyro_step),
-        -quantize((gyro + gyro_noise).z, gyro_step), // Invert yaw angular velocity because its NED frame
+        quantize((gyro_gt + gyro_noise).x, gyro_step),
+        quantize((gyro_gt + gyro_noise).y, gyro_step),
+        -quantize((gyro_gt + gyro_noise).z, gyro_step), // Invert yaw angular velocity because its NED frame
     );    
 
-    let mag = quantize(mag + mag_noise, mag_step);
+    let mag = quantize(mag_gt + mag_noise, mag_step);
     // Simulate Resolution (START) ==================================================
 
 

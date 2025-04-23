@@ -296,7 +296,7 @@ pub fn draw_scene(
         );
 
         // Show world coordinate label
-        let label = format!("x: {:.1}, y: {:.1}", world_mouse[0], world_mouse[1]);
+        let label = format!("x: {:.1}, y: {:.1}", world_mouse[0], -world_mouse[1]);
         painter.text(
             mouse_pos + Vec2::new(5.0, 5.0),
             egui::Align2::LEFT_TOP,

@@ -15,11 +15,12 @@ use serde::Deserialize;
 use std::fs;
 use std::str;
 
-// Library for linear algebra
+// Libraries for math
 use nalgebra::{
-    Vector2, Vector3, Vector6, SVector,
+    Vector2, Vector3, SVector,
     SMatrix
 };
+use std::f32::consts::PI;
 
 
 
@@ -50,7 +51,8 @@ struct ShipConfig {
 struct SensorsConfig {
     gnss_antenna1_placement: [f32; 3],
     gnss_antenna2_placement: [f32; 3],
-    imu_placement: [f32; 6],
+    imu_placement: [f32; 3],
+    imu_rotation: [f32; 3],
 }
 
 #[allow(non_snake_case)]
@@ -123,18 +125,20 @@ impl ODE {
 
         // Split up states into manageable subparts
         let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
-        let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
+        let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
         let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
-        let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
+        let euler: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
         let thruster_rpm: f32 = u[0];
         let thruster_angle: f32 = u[1];
 
-        // Inverse kinematics
-        let v_lin_b = kinematics::linear_velocity_world_to_body(r_ang_w, v_lin_w);
-        let v_ang_b = kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
-        
-        let gravity_b = kinematics::linear_accel_world_to_body(r_ang_w, gravity_w);
+        // Convert to body frame
+        let r_ang_b: Vector3<f32> = euler;
+        let r_lin_b: Vector3<f32> = kinematics::rot_world_to_body(euler) * r_lin_w;
+        let v_ang_b: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
+        let v_lin_b: Vector3<f32> = kinematics::linear_velocity_world_to_body(euler, v_lin_w);
+
+        let gravity_b = kinematics::linear_accel_world_to_body(euler, gravity_w);
 
         // Dynamics
         let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
@@ -146,16 +150,16 @@ impl ODE {
             r_lin_w,
         );
 
-        // Kinematics
-        let a_lin_w = kinematics::linear_accel_body_to_world(r_ang_w, a_lin_b,);
-        let a_ang_w = kinematics::angular_accel_body_to_world(r_ang_w, a_ang_b);
-
+        // Convert to world frame
+        let a_lin_w = kinematics::linear_accel_body_to_world(euler, a_lin_b,);
+        let euler_dot_dot = kinematics::angular_accel_body_to_euler_dot_dot(euler, euler_dot, a_ang_b);
+        
         // Structure return states properly
         let mut x_dot: Vector12<f32> = Vector12::<f32>::zeros();
-        x_dot.fixed_rows_mut::<3>(0).copy_from(&a_lin_w); // [ax, ay, az]
-        x_dot.fixed_rows_mut::<3>(3).copy_from(&a_ang_w); // [angular acceleration in roll, pitch, yaw]
-        x_dot.fixed_rows_mut::<3>(6).copy_from(&v_lin_w); // [vx, vy, vz]
-        x_dot.fixed_rows_mut::<3>(9).copy_from(&v_ang_w); // [angular velocity in roll, pitch, yaw]
+        x_dot.fixed_rows_mut::<3>(0).copy_from(&a_lin_w);       // [ax, ay, az]
+        x_dot.fixed_rows_mut::<3>(3).copy_from(&euler_dot_dot); // [angular acceleration in roll, pitch, yaw]
+        x_dot.fixed_rows_mut::<3>(6).copy_from(&v_lin_w);       // [vx, vy, vz]
+        x_dot.fixed_rows_mut::<3>(9).copy_from(&euler_dot);     // [angular velocity in roll, pitch, yaw]
         
         return x_dot;
     }
@@ -166,72 +170,222 @@ impl ODE {
 // Measurement Transformation functions for sensors ----------
 // estimated measurement: (~z) = h(x)   // transform state -> measurement space
 // measured estimate:     (~x) = h⁻¹(z) // transform measurement -> state space
-fn h_gnss(
-    x: Vector12<f32>,                 // Estimated states
-    antenna1_placement: Vector3<f32>, // Antenna placement in body frame
-    antenna2_placement: Vector3<f32>, // Antenna placement in body frame
+
+/// Computes the GNSS measurement prediction from the current state estimate.
+/// 
+/// # Inputs:
+/// - `x`: State vector [vx, vy, vz, wx, wy, wz, px, py, pz, roll, pitch, yaw]
+/// - `antenna1_placement`: Antenna 1 position in body frame [m]
+/// - `antenna2_placement`: Antenna 2 position in body frame [m]
+/// 
+/// # Output:
+/// - GNSS measurement vector [antenna1_x, antenna1_y, antenna1_z, antenna2_x, antenna2_y, antenna2_z, v_avg_x, v_avg_y, v_avg_z] in world frame
+pub fn h_gnss(
+    x: Vector12<f32>,
+    antenna1_placement: Vector3<f32>,
+    antenna2_placement: Vector3<f32>,
 ) -> Vector9<f32> {
-    // Extract states
-    let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // velocity in world
-    let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // position in world
-    let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into(); // orientation in world
+    // Split up states into manageable subparts
+    let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
+    let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
+    let r_lin_w: Vector3<f32> = x.fixed_rows::<3>(6).into(); // [x, y, z]
+    let euler: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
-    // Inverse Kinematics
-    let r_lin_b: Vector3<f32> = kinematics::r_world_to_body(r_ang_w) * r_lin_w;
+    // Convert Ship to body frame
+    let v_ang_ship: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
+    let v_lin_ship: Vector3<f32> = kinematics::linear_velocity_world_to_body(euler, v_lin_w);
 
-    // Kinematics
-    let r_antenna1_b: Vector3<f32> = r_lin_b + antenna1_placement;
-    let r_antenna2_b: Vector3<f32> = r_lin_b + antenna2_placement;
-    let r_antenna1_w = kinematics::r_body_to_world(r_ang_w) * r_antenna1_b;
-    let r_antenna2_w = kinematics::r_body_to_world(r_ang_w) * r_antenna2_b;
+    // Convert Ship to object frame
+    let antenna1_velocity_in_ship = Vector3::<f32>::zeros(); // Antenna sits tight, no linear velocity in the ship
+    let antenna2_velocity_in_ship = Vector3::<f32>::zeros(); // Antenna sits tight, no linear velocity in the ship
+    let antenna1_placement_in_ship = antenna1_placement;
+    let antenna2_placement_in_ship = antenna2_placement;
+    let v_lin_antenna1: Vector3<f32> = kinematics::linear_velocity_body_to_object(
+        v_lin_ship,
+        antenna1_velocity_in_ship,
+        v_ang_ship,
+        antenna1_placement_in_ship,
+    );
+    let v_lin_antenna2: Vector3<f32> = kinematics::linear_velocity_body_to_object(
+        v_lin_ship,
+        antenna2_velocity_in_ship,
+        v_ang_ship,
+        antenna2_placement_in_ship,
+    );
+
+    // Convert Antennas to body frame
+    let r_lin_antenna1_b: Vector3<f32> = antenna1_placement_in_ship;
+    let r_lin_antenna2_b: Vector3<f32> = antenna2_placement_in_ship;
+    let v_lin_antenna1_b: Vector3<f32> = kinematics::linear_velocity_object_to_body(
+        v_lin_antenna1,
+        antenna1_velocity_in_ship,
+        v_ang_ship,
+        antenna1_placement_in_ship,
+    );
+    let v_lin_antenna2_b: Vector3<f32> = kinematics::linear_velocity_object_to_body(
+        v_lin_antenna2,
+        antenna2_velocity_in_ship,
+        v_ang_ship,
+        antenna2_placement_in_ship,
+    );
+
+    // Convert Antennas to world frame
+    let r_lin_antenna1_w: Vector3<f32> = kinematics::rot_body_to_world(euler) * r_lin_antenna1_b + r_lin_w;
+    let r_lin_antenna2_w: Vector3<f32> = kinematics::rot_body_to_world(euler) * r_lin_antenna2_b + r_lin_w;
+    let v_lin_antenna1_w: Vector3<f32> = kinematics::linear_velocity_body_to_world(euler, v_lin_antenna1_b);
+    let v_lin_antenna2_w: Vector3<f32> = kinematics::linear_velocity_body_to_world(euler, v_lin_antenna2_b);
+
+    // Average velocity
+    let v_avg = (v_lin_antenna1_w + v_lin_antenna2_w) * 0.5;
 
     // Save transformed vector
     let mut y = Vector9::<f32>::zeros();
-    y.fixed_rows_mut::<3>(0).copy_from(&r_antenna1_w);
-    y.fixed_rows_mut::<3>(3).copy_from(&r_antenna2_w);
-    y.fixed_rows_mut::<3>(6).copy_from(&v_lin_w);
+    y.fixed_rows_mut::<3>(0).copy_from(&r_lin_antenna1_w);
+    y.fixed_rows_mut::<3>(3).copy_from(&r_lin_antenna2_w);
+    y.fixed_rows_mut::<3>(6).copy_from(&v_avg);
 
     y
 }
 
 fn h_imu(
     x: Vector12<f32>,            // Estimated full state vector
-    imu_placement: Vector6<f32>, // IMU placement: [x, y, z, roll, pitch, yaw] in body frame
+    imu_placement: Vector3<f32>, // IMU placement: [x, y, z] in body frame
+    imu_rotation: Vector3<f32>,  // IMU placement: [roll, pitch, yaw] in IMU frame
 ) -> Vector7<f32> {
-    // Extract states
-    let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into();   // linear velocity in world frame
-    let v_ang_w: Vector3<f32> = x.fixed_rows::<3>(3).into();   // angular velocity in world frame
-    let r_ang_w: Vector3<f32> = x.fixed_rows::<3>(9).into();   // orientation (roll, pitch, yaw)
+    // Get constants
+    let mag_north_w: Vector3<f32> = Vector3::new(0.0, 1.0, 0.0);
 
-    // IMU placement
-    let imu_pos_b = Vector3::new(imu_placement[0], imu_placement[1], imu_placement[2]);
-    let imu_rot_b = Vector3::new(imu_placement[3], imu_placement[4], imu_placement[5]);
+    // Split up states into manageable subparts
+    let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
+    let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
+    let euler: Vector3<f32> = x.fixed_rows::<3>(9).into(); // [roll, pitch, yaw]
 
-    // Rotation matrices
-    let r_world_to_body = kinematics::r_world_to_body(r_ang_w);
-    let r_body_to_imu = kinematics::r_body_to_object(imu_rot_b);
+    // Convert Ship to body frame
+    let v_lin_ship: Vector3<f32> = kinematics::linear_velocity_world_to_body(euler, v_lin_w);
+    let v_ang_ship: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
+    let mag_north_ship: Vector3<f32> = kinematics::rot_world_to_body(euler) * mag_north_w;
 
-    // Linear velocity in body frame
-    let v_lin_b = r_world_to_body * v_lin_w;
+    // Convert Ship to object frame
+    let imu_velocity_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no linear velocity in the ship
+    let imu_placement_in_ship = imu_placement; // IMU placement relative to ship
+    let mut v_lin_imu = kinematics::linear_velocity_body_to_object(
+        v_lin_ship,
+        imu_velocity_in_ship,
+        v_ang_ship,
+        imu_placement_in_ship,
+    );
+    v_lin_imu = kinematics::rot_body_to_object(imu_rotation) * v_lin_imu; // Need to rotate to internal frame else we get wrong acceleration frame
 
-    // Linear velocity in IMU frame
-    let v_lin_imu = r_body_to_imu * (v_lin_b + v_ang_w.cross(&imu_pos_b));
+    let imu_v_ang_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no angular velocity in the ship
+    let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
+    v_ang_imu = kinematics::rot_body_to_object(imu_rotation) * v_ang_imu; // Need to rotate to internal frame else we get wrong acceleration frame
 
-    // Angular velocity in IMU frame
-    let gyro = r_body_to_imu * kinematics::angular_velocity_world_to_body(r_ang_w, v_ang_w);
-
-    // Yaw (magnetometer proxy)
-    let mag = r_ang_w[2];
+    let mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
+    let mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
 
     // Pack it
     let mut y = Vector7::<f32>::zeros();
     y.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
-    y.fixed_rows_mut::<3>(3).copy_from(&gyro);      // gyro
-    y[6] = mag;                                                      // yaw angle
+    y.fixed_rows_mut::<3>(3).copy_from(&v_ang_imu); // gyro
+    y[6] = mag_imu + PI/2.0;                                                  // yaw angle
 
     y
 }
 
+
+
+// Handy functions ----------
+// When IMU passes magnetic field the magnetometer converges angles and they flip
+// IN order to account for that we must unwrap magnetometer values in IMU
+fn wrap_angle(angle: f32) -> f32 {
+    let mut a = angle;
+    while a > std::f32::consts::PI {
+        a -= 2.0 * std::f32::consts::PI;
+    }
+    while a < -std::f32::consts::PI {
+        a += 2.0 * std::f32::consts::PI;
+    }
+    a
+}
+
+/// Normalize angle to range [-PI, PI]
+pub fn normalize_angle(mut angle: f32) -> f32 {
+    use std::f32::consts::PI;
+
+    while angle > PI {
+        angle -= 2.0 * PI;
+    }
+    while angle < -PI {
+        angle += 2.0 * PI;
+    }
+    angle
+}
+
+pub struct YawTracker {
+    last_angle: f32,
+    unwrapped_angle: f32,
+}
+
+impl YawTracker {
+    pub fn new(initial_angle: f32) -> Self {
+        Self {
+            last_angle: initial_angle,
+            unwrapped_angle: initial_angle,
+        }
+    }
+
+    /// Call this every update with the new wrapped angle (in [-π, π] or [0, 2π])
+    pub fn update(&mut self, new_angle: f32) -> f32 {
+        use std::f32::consts::PI;
+
+        let mut delta = new_angle - self.last_angle;
+
+        // Wrap delta to [-π, π]
+        if delta > PI {
+            delta -= 2.0 * PI;
+        } else if delta < -PI {
+            delta += 2.0 * PI;
+        }
+
+        self.unwrapped_angle += delta;
+        self.last_angle = new_angle;
+
+        self.unwrapped_angle
+    }
+
+    pub fn get(&self) -> f32 {
+        self.unwrapped_angle
+    }
+}
+
+/// Print any matrix (SMatrix) nicely with fixed formatting
+///
+/// # Parameters:
+/// - `name`: Matrix label to print before the data
+/// - `matrix`: The matrix to print, supports any dimensions R×C
+///
+/// # Output:
+/// Example for 3x2:
+/// A = [
+///   [   1.0000000,   2.0000000, ],
+///   [   3.0000000,   4.0000000, ],
+///   [   5.0000000,   6.0000000, ],
+/// ]
+fn print_matrix<T: std::fmt::Display, const R: usize, const C: usize>(
+    name: &str,
+    matrix: &nalgebra::SMatrix<T, R, C>
+) {
+    println!("{} = [", name);
+    for r in 0..R {
+        print!("  [");
+        for c in 0..C {
+            // Print each value with consistent spacing
+            print!("{:>12.8}, ", matrix[(r, c)]);
+        }
+        println!("],");
+    }
+    println!("]");
+}
 
 
 
@@ -265,7 +419,7 @@ fn main() {
     // GET - Control Forces (STOP) ==================================================
 
 
-
+    
     // Extended Kalman Filter (START) ==================================================
     // Initialize EKF shared states ----------
     let x_0: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.ship.x_0);
@@ -423,7 +577,8 @@ fn main() {
                 // Convert measured GNSS velocity to IMU velocity integral
                 let z_imu = h_imu(
                     x_est_posterior.clone(),
-                    Vector6::from_column_slice(&config.sensors.imu_placement),
+                    Vector3::from_column_slice(&config.sensors.imu_placement),
+                    Vector3::from_column_slice(&config.sensors.imu_rotation),
                 );
 
                 let z_imu_v = z_imu.fixed_rows::<3>(0).into_owned();
@@ -463,6 +618,9 @@ fn main() {
         let mut imu_drift_factor: Vector7::<f32> = Vector7::<f32>::from_row_slice(&config.estimators.imu_drift);
         imu_drift_factor += Vector7::<f32>::from_element(1.0);
         let imu_drift_matrix: Matrix7x7<f32> = Matrix7x7::from_diagonal(&imu_drift_factor);
+
+        // !!!!
+        let mut tracker = YawTracker::new(0.0);
         
         loop {
             // Wait for IMU data
@@ -471,7 +629,7 @@ fn main() {
             let imu: TOPICS::imu::DataType = udp_utils::decode_json(json_str);
             
             // EKF States
-            let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
+            let mut x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
 
             // Integrate acceleration to velocity
@@ -502,7 +660,14 @@ fn main() {
             let mut z = Vector7::<f32>::zeros();
             z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
             z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
-            z[6] = imu[6]; // yaw
+            let delta_yaw = normalize_angle(x_est_pri[11] - imu[6]);
+            z[6] = delta_yaw; // yaw
+            x_est_pri[11] = 0.0;
+
+            z[6] = imu[6] + PI/2.0;
+            let smooth_yaw = tracker.update(imu[6]);
+            z[6] = smooth_yaw + PI/2.0;
+
 
             // Correction
             let (
@@ -511,7 +676,8 @@ fn main() {
             ) = ekf::correct(
                 |x| h_imu(
                     x.clone(),
-                    Vector6::from_column_slice(&config.sensors.imu_placement),
+                    Vector3::from_column_slice(&config.sensors.imu_placement),
+                    Vector3::from_column_slice(&config.sensors.imu_rotation),
                 ),
                 z,
                 x_est_pri,
@@ -527,6 +693,16 @@ fn main() {
             x_est_posterior[4] = 0.0; // Pitch velocity
             x_est_posterior[9] = 0.0; // Roll
             x_est_posterior[10] = 0.0; // Pitch
+
+            // ! DEBUGGING
+            println!("z: {:?}", z);
+            println!("h: {:?}", h_imu(
+                x_est_pri,
+                Vector3::from_column_slice(&config.sensors.imu_placement),
+                Vector3::from_column_slice(&config.sensors.imu_rotation),
+            ));
+            println!("x_est_posterior: {:?}", x_est_posterior);
+            println!();
 
             // Update EKF states
             {

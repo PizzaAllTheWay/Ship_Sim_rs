@@ -11,7 +11,8 @@ pub struct ShipDynamics {
     pub m: f32,                // mass of the boat [kg]
     pub dimensions: [f32; 2],  // dimensions of the boat (r, l) [m]
     pub thruster_placement: Vector3<f32>, // Placement of thruster on the ship in body frame [x, y, z] [m]
-    pub I_inv: Matrix3<f32>,   // inverse moment of inertia for faster computation [1/kg*m²]
+    pub I: Matrix3<f32>, // Moment of inertia for faster computation [kg*m²]
+    pub I_inv: Matrix3<f32>, // inverse moment of inertia for faster computation [1/kg*m²]
     pub v_lin_max: f32, // [m/s]
     pub v_ang_max: f32, // [rad/s]
 }
@@ -55,6 +56,7 @@ impl ShipDynamics {
             m,
             dimensions,
             thruster_placement,
+            I,
             I_inv,
             v_lin_max: velocity_lin_max,
             v_ang_max: velocity_ang_max,
@@ -295,7 +297,7 @@ impl ShipDynamics {
 
         // Calculate acceleration of the body ----------
         let a = (1.0/self.m) * force_tot;
-        let alpha = self.I_inv * torque_tot;
+        let alpha = self.I_inv * (torque_tot - v_ang.cross(&(self.I * v_ang)));
 
         return (a, alpha);
     }
