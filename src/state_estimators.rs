@@ -274,20 +274,20 @@ fn h_imu(
         v_ang_ship,
         imu_placement_in_ship,
     );
-    v_lin_imu = kinematics::rot_body_to_object(imu_rotation) * v_lin_imu; // Need to rotate to internal frame else we get wrong acceleration frame
+    //v_lin_imu = kinematics::rot_body_to_object(imu_rotation) * v_lin_imu; // Need to rotate to internal frame else we get wrong acceleration frame
 
     let imu_v_ang_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no angular velocity in the ship
     let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
     v_ang_imu = kinematics::rot_body_to_object(imu_rotation) * v_ang_imu; // Need to rotate to internal frame else we get wrong acceleration frame
 
-    let mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
+    let mag_imu_vec = mag_north_ship; //kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
     let mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
 
     // Pack it
     let mut y = Vector7::<f32>::zeros();
     y.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
-    y.fixed_rows_mut::<3>(3).copy_from(&v_ang_imu); // gyro
-    y[6] = mag_imu + PI/2.0;                                                  // yaw angle
+    y.fixed_rows_mut::<3>(3).copy_from(&-v_ang_imu); // gyro
+    y[6] = mag_imu;                                                  // yaw angle
 
     y
 }
@@ -297,30 +297,6 @@ fn h_imu(
 // Handy functions ----------
 // When IMU passes magnetic field the magnetometer converges angles and they flip
 // IN order to account for that we must unwrap magnetometer values in IMU
-fn wrap_angle(angle: f32) -> f32 {
-    let mut a = angle;
-    while a > std::f32::consts::PI {
-        a -= 2.0 * std::f32::consts::PI;
-    }
-    while a < -std::f32::consts::PI {
-        a += 2.0 * std::f32::consts::PI;
-    }
-    a
-}
-
-/// Normalize angle to range [-PI, PI]
-pub fn normalize_angle(mut angle: f32) -> f32 {
-    use std::f32::consts::PI;
-
-    while angle > PI {
-        angle -= 2.0 * PI;
-    }
-    while angle < -PI {
-        angle += 2.0 * PI;
-    }
-    angle
-}
-
 pub struct YawTracker {
     last_angle: f32,
     unwrapped_angle: f32,
@@ -523,6 +499,7 @@ fn main() {
         }
     });
     
+    /*
     // Correct using GNSS ----------
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]
@@ -602,6 +579,7 @@ fn main() {
             }
         }
     });
+    */
 
     // Correction using IMU ----------
     let ekf_data_clone = ekf_data.clone();
@@ -618,9 +596,6 @@ fn main() {
         let mut imu_drift_factor: Vector7::<f32> = Vector7::<f32>::from_row_slice(&config.estimators.imu_drift);
         imu_drift_factor += Vector7::<f32>::from_element(1.0);
         let imu_drift_matrix: Matrix7x7<f32> = Matrix7x7::from_diagonal(&imu_drift_factor);
-
-        // !!!!
-        let mut tracker = YawTracker::new(0.0);
         
         loop {
             // Wait for IMU data
@@ -629,7 +604,7 @@ fn main() {
             let imu: TOPICS::imu::DataType = udp_utils::decode_json(json_str);
             
             // EKF States
-            let mut x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
+            let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
 
             // Integrate acceleration to velocity
@@ -660,13 +635,7 @@ fn main() {
             let mut z = Vector7::<f32>::zeros();
             z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
             z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
-            let delta_yaw = normalize_angle(x_est_pri[11] - imu[6]);
-            z[6] = delta_yaw; // yaw
-            x_est_pri[11] = 0.0;
-
-            z[6] = imu[6] + PI/2.0;
-            let smooth_yaw = tracker.update(imu[6]);
-            z[6] = smooth_yaw + PI/2.0;
+            z[6] = imu[6];
 
 
             // Correction
@@ -693,6 +662,13 @@ fn main() {
             x_est_posterior[4] = 0.0; // Pitch velocity
             x_est_posterior[9] = 0.0; // Roll
             x_est_posterior[10] = 0.0; // Pitch
+
+            // Make angle continuous from sharp pi to -pi decent
+            // Important for state predictor to have angles in continuous form, unlike IMU sharp pi to -pi decent
+            x_est_posterior[11] = (x_est_posterior[11] + PI) % (2.0 * PI);
+            if x_est_posterior[11] > PI {
+                x_est_posterior[11] -= 2.0 * PI;
+            }
 
             // ! DEBUGGING
             println!("z: {:?}", z);

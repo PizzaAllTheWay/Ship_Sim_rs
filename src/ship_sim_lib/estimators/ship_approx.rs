@@ -128,10 +128,10 @@ impl ShipDynamics {
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability
         let d_lin_matrix = Matrix3::new(
             200.0,  0.0,  0.0,
-            0.0,  600_000.0,  0.0,
-            0.0,  0.0,  30_000.0,
+            0.0,  200_000.0,  0.0,
+            0.0,  0.0,  100_000.0,
         );
-        let d_ang: f32 = 100_000.0;
+        let d_ang: f32 = 50_000.0;
         
         let force_dampening = (-d_lin_matrix) * v_lin;
         let torque_dampening = (-d_ang) * v_ang;
@@ -225,7 +225,6 @@ impl ShipDynamics {
         // Calculate buoyancy force
         let force_buoyancy_z = rho_water * g * volume_submerged;
         let mut force_buoyancy = Vector3::new(0.0, 0.0, force_buoyancy_z);
-        //self.apply_directional_decay(&mut force_buoyancy, v_lin, self.velocity_linear_max * 2.0, 0.5); // Limit ship fall speed because there is no way the ship can fall faster than this
         
         // Calculate subsystem forces ----------
         // x

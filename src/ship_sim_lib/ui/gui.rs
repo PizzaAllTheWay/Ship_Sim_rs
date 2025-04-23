@@ -363,7 +363,7 @@ impl eframe::App for SimulatorWindow {
                 ui.label(format!("Ship Y: {:.1} m", -pos[1])); // Because of Right Hand NED frame must flip for screen output
                 ui.label(format!("Ship θ: {:.2}°", pos[5].to_degrees()));
                 ui.label(format!("Ship v: {:.2} m/s", ship_speed[0]));
-                ui.label(format!("Ship ω: {:.3}°/s", ship_speed[1]));
+                ui.label(format!("Ship ω: {:.3}°/s", -ship_speed[1])); // Because of Right Hand NED frame must flip for screen output
                 ui.label(format!("Zoom: {:.2}x", self.zoom));
                 ui.label(format!("Pan X: {:.1}", self.camera_offset[0]));
                 ui.label(format!("Pan Y: {:.1}", -self.camera_offset[1])); // Because of Right Hand NED frame must flip for screen output
