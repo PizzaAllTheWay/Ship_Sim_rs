@@ -1,10 +1,9 @@
 // Custom libraries
-//use ship_sim_lib::models::ship;
+use ship_sim_lib::models::ship;
 use ship_sim_lib::simulation::kinematics;
 use ship_sim_lib::simulation::solver;
 use ship_sim_lib::comm::udp_utils;
 use ship_sim_lib::comm::udp_topics::{TOPICS, Vector12};
-use ship_sim_lib::estimators::ship_approx;
 
 // Library for data formatting
 use serde::Deserialize;
@@ -43,13 +42,8 @@ struct Config {
 
 // Our non linear ODE ----------
 // x_dot = f(x, u, w)
-// pub struct ODE {
-//     pub ship_dynamic: ship::ShipDynamics,
-//     pub x: Vector12<f32>,
-// }
-
 pub struct ODE {
-    pub ship_dynamic: ship_approx::ShipDynamics,
+    pub ship_dynamic: ship::ShipDynamics,
     pub x: Vector12<f32>,
 }
 
@@ -69,22 +63,13 @@ impl ODE {
 
     ) -> Self {
         // Initialize ship dynamics        
-        // let ship_dynamic = ship::ShipDynamics::new(
-        //     ship_mass,
-        //     ship_dimensions,
-        //     thruster_placement,
-        //     velocity_linear_max,
-        //     velocity_angular_max,
-        // );
-
-        let ship_dynamic = ship_approx::ShipDynamics::new(
+        let ship_dynamic = ship::ShipDynamics::new(
             ship_mass,
             ship_dimensions,
             thruster_placement,
             velocity_linear_max,
             velocity_angular_max,
         );
-
 
         // Initialize starting conditions
         let x = x_0;
@@ -130,22 +115,13 @@ impl ODE {
         let gravity_b = kinematics::linear_accel_world_to_body(euler, gravity_w);
 
         // Dynamics
-        // let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
-        //     thruster_rpm,
-        //     thruster_angle,
-        //     v_lin_b,
-        //     v_ang_b,
-        //     w_wind_b,
-        //     w_current_b,
-        //     gravity_b,
-        //     r_lin_w,
-        // );
-
         let (a_lin_b, a_ang_b) = self.ship_dynamic.calc_accel_body(
             thruster_rpm,
             thruster_angle,
             v_lin_b,
             v_ang_b,
+            w_wind_b,
+            w_current_b,
             gravity_b,
             r_lin_w,
         );
@@ -309,7 +285,7 @@ fn main() {
             // Simulation time step
             let sim_dt_json = udp_utils::encode_json(&dt);
             udp_utils::publish(TOPICS::sim_dt::PORT, sim_dt_json.as_bytes()).expect("Failed to send simulation time step data");
-
+            
             // Pause a bit
             thread::sleep(Duration::from_millis((dt * 1000.0) as u64));
         }

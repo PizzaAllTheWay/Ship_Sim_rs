@@ -10,7 +10,7 @@ x_0 = [
     0.0, 0.0,   0.0, # [vx, vy, vz]
     0.0, 0.0,   0.0, # [wx, wy, wz]
     0.0, 0.0,   0.0, # [x, y, z]
-    0.0, 0.0,  1.57, # [roll, pitch, yaw] (PI/2 to face forward in Y axis)
+    0.0, 0.0,   2.36, # [roll, pitch, yaw] ((3/4)*PI to face angled Y axis)
 ]
 
 [interface]

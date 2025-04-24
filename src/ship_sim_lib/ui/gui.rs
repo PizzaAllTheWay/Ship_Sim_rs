@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 
 // Libraries for maths
 use nalgebra::{Vector3, Vector6};
+use std::f32::consts::PI;
 
 
 
@@ -361,7 +362,7 @@ impl eframe::App for SimulatorWindow {
             ui.horizontal(|ui| {
                 ui.label(format!("Ship X: {:.1} m", pos[0]));
                 ui.label(format!("Ship Y: {:.1} m", -pos[1])); // Because of Right Hand NED frame must flip for screen output
-                ui.label(format!("Ship θ: {:.2}°", pos[5].to_degrees()));
+                ui.label(format!("Ship θ: {:.2}°", (PI - pos[5]).to_degrees()));
                 ui.label(format!("Ship v: {:.2} m/s", ship_speed[0]));
                 ui.label(format!("Ship ω: {:.3}°/s", -ship_speed[1])); // Because of Right Hand NED frame must flip for screen output
                 ui.label(format!("Zoom: {:.2}x", self.zoom));

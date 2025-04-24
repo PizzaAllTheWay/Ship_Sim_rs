@@ -224,7 +224,7 @@ impl ShipDynamics {
 
         // Calculate buoyancy force
         let force_buoyancy_z = rho_water * g * volume_submerged;
-        let mut force_buoyancy = Vector3::new(0.0, 0.0, force_buoyancy_z);
+        let force_buoyancy = Vector3::new(0.0, 0.0, force_buoyancy_z);
         
         // Calculate subsystem forces ----------
         // x

@@ -280,17 +280,6 @@ pub fn linear_velocity_body_to_world(
     rot_body_to_world(euler_angles_body) * v_b
 }
 
-pub fn linear_velocity_body_to_object(
-    v_body: Vector3<f32>,
-    v_object_in_body: Vector3<f32>,
-    omega_body: Vector3<f32>,
-    r_object_in_body: Vector3<f32>,
-) -> Vector3<f32> {
-    let v_object = v_body + v_object_in_body + omega_body.cross(&r_object_in_body);
-
-    return v_object;
-}
-
 /// Computes the linear velocity of an object point in the body frame,
 /// accounting for the ship's motion, object's motion relative to the ship,
 /// and rotational velocity due to offset from center of mass.
@@ -311,6 +300,17 @@ pub fn linear_velocity_body_to_object(
 ///   + v_object_in_body
 ///   + omega × r
 /// ```
+pub fn linear_velocity_body_to_object(
+    v_body: Vector3<f32>,
+    v_object_in_body: Vector3<f32>,
+    omega_body: Vector3<f32>,
+    r_object_in_body: Vector3<f32>,
+) -> Vector3<f32> {
+    let v_object = v_body + v_object_in_body + omega_body.cross(&r_object_in_body);
+
+    return v_object;
+}
+
 pub fn linear_velocity_object_to_body(
     v_object: Vector3<f32>,
     v_object_in_body: Vector3<f32>,

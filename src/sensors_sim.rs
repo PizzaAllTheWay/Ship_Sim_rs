@@ -259,8 +259,7 @@ fn main() {
             a_lin_imu = kinematics::rot_body_to_object(imu_rotation) * a_lin_imu; // Need to rotate to internal frame else we get wrong acceleration frame
 
             let imu_v_ang_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no angular velocity in the ship
-            let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
-            v_ang_imu = kinematics::rot_body_to_object(imu_rotation) * v_ang_imu; // Need to rotate to internal frame else we get wrong acceleration frame
+            let v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
 
             let mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
             let mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame

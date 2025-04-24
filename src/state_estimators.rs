@@ -274,20 +274,21 @@ fn h_imu(
         v_ang_ship,
         imu_placement_in_ship,
     );
-    //v_lin_imu = kinematics::rot_body_to_object(imu_rotation) * v_lin_imu; // Need to rotate to internal frame else we get wrong acceleration frame
+    v_lin_imu = kinematics::rot_body_to_object(imu_rotation) * v_lin_imu; // Rotate into IMU frame
+    v_lin_imu *= -1.0; // ? Need to invert the velocities for some reason (I have no idea why because its literally same transform as in simulation)
 
     let imu_v_ang_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no angular velocity in the ship
     let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
-    v_ang_imu = kinematics::rot_body_to_object(imu_rotation) * v_ang_imu; // Need to rotate to internal frame else we get wrong acceleration frame
+    v_ang_imu *= -1.0; // ? Need to invert the velocities for some reason (I have no idea why because its literally same transform as in simulation)
 
-    let mag_imu_vec = mag_north_ship; //kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
+    let mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
     let mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
 
     // Pack it
     let mut y = Vector7::<f32>::zeros();
     y.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
-    y.fixed_rows_mut::<3>(3).copy_from(&-v_ang_imu); // gyro
-    y[6] = mag_imu;                                                  // yaw angle
+    y.fixed_rows_mut::<3>(3).copy_from(&v_ang_imu); // gyro
+    y[6] = mag_imu; // yaw angle
 
     y
 }
@@ -295,43 +296,52 @@ fn h_imu(
 
 
 // Handy functions ----------
-// When IMU passes magnetic field the magnetometer converges angles and they flip
-// IN order to account for that we must unwrap magnetometer values in IMU
-pub struct YawTracker {
-    last_angle: f32,
-    unwrapped_angle: f32,
+/// Limit the estimated ship states to ensure stable EKF operation
+///
+/// Removes roll/pitch, and wraps yaw angle to [-π, π]
+fn limit_states(x: Vector12<f32>) -> Vector12<f32> {
+    let mut x_limited = x;
+
+    // Remove roll and pitch position and velocity
+    // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
+    // If roll and pitch were anything than 0 the ship would be rolled over game over
+    // Also because of euler angles if these come close to +- pi/2 it will get a singularity
+    x_limited[3] = 0.0;  // Roll velocity
+    x_limited[4] = 0.0;  // Pitch velocity
+    x_limited[9] = 0.0;  // Roll
+    x_limited[10] = 0.0; // Pitch
+
+    // Clamp physically impossible velocities
+    x_limited[0] = x[0].clamp(-10.0, 10.0); // X velocity
+    x_limited[1] = x[1].clamp(-10.0, 10.0); // Y velocity
+    x_limited[2] = x[2].clamp(-10.0, 10.0); // Z velocity
+    x_limited[5] = x[5].clamp(-10.0, 10.0); // Yaw velocity
+
+    x_limited
 }
 
-impl YawTracker {
-    pub fn new(initial_angle: f32) -> Self {
-        Self {
-            last_angle: initial_angle,
-            unwrapped_angle: initial_angle,
-        }
+/// Unwrap yaw to preserve continuous angle rotation over time
+///
+/// Takes previous unwrapped yaw and a new wrapped yaw (from IMU or measurement),
+/// calculates the shortest angular difference, and adds it to the previous yaw.
+/// This avoids jumps at ±π and allows full yaw accumulation (e.g., 0 → 2π → 4π → ...).
+///
+/// # Inputs:
+/// - `prev_unwrapped`: Previous yaw in unwrapped continuous radians
+/// - `new_wrapped`: New yaw in wrapped form (range -π to π or 0 to 2π)
+///
+/// # Output:
+/// - New yaw, unwrapped and continuous (can grow beyond ±2π)
+fn unwrap_yaw(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
+    let mut delta = new_wrapped - (prev_unwrapped % (2.0 * PI));
+    
+    if delta > PI {
+        delta -= 2.0 * PI;
+    } else if delta < -PI {
+        delta += 2.0 * PI;
     }
 
-    /// Call this every update with the new wrapped angle (in [-π, π] or [0, 2π])
-    pub fn update(&mut self, new_angle: f32) -> f32 {
-        use std::f32::consts::PI;
-
-        let mut delta = new_angle - self.last_angle;
-
-        // Wrap delta to [-π, π]
-        if delta > PI {
-            delta -= 2.0 * PI;
-        } else if delta < -PI {
-            delta += 2.0 * PI;
-        }
-
-        self.unwrapped_angle += delta;
-        self.last_angle = new_angle;
-
-        self.unwrapped_angle
-    }
-
-    pub fn get(&self) -> f32 {
-        self.unwrapped_angle
-    }
+    prev_unwrapped + delta
 }
 
 /// Print any matrix (SMatrix) nicely with fixed formatting
@@ -466,14 +476,7 @@ fn main() {
                 Q,
             );
 
-            // Remove roll and pitch position and velocity
-            // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
-            // If roll and pitch were anything than 0 the ship would be rolled over game over
-            // Also because of euler angles if these come close to +- pi/2 it will get a singularity
-            x_est_priori[3] = 0.0; // Roll velocity
-            x_est_priori[4] = 0.0; // Pitch velocity
-            x_est_priori[9] = 0.0; // Roll
-            x_est_priori[10] = 0.0; // Pitch
+            x_est_priori = limit_states(x_est_priori);
 
             // Update EKF states
             {
@@ -499,7 +502,6 @@ fn main() {
         }
     });
     
-    /*
     // Correct using GNSS ----------
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]
@@ -539,14 +541,7 @@ fn main() {
                 R,
             );
 
-            // Remove roll and pitch position and velocity
-            // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
-            // If roll and pitch were anything than 0 the ship would be rolled over game over
-            // Also because of euler angles if these come close to +- pi/2 it will get a singularity
-            x_est_posterior[3] = 0.0; // Roll velocity
-            x_est_posterior[4] = 0.0; // Pitch velocity
-            x_est_posterior[9] = 0.0; // Roll
-            x_est_posterior[10] = 0.0; // Pitch
+            x_est_posterior = limit_states(x_est_posterior);
 
             // In addition we must update IMU data to absolute certainty values from GNSS where it applies
             // Mainly to linear velocity IMU integral and drift can be reset
@@ -558,7 +553,8 @@ fn main() {
                     Vector3::from_column_slice(&config.sensors.imu_rotation),
                 );
 
-                let z_imu_v = z_imu.fixed_rows::<3>(0).into_owned();
+                // Invert linear velocity because opposite direction 
+                let z_imu_v = -z_imu.fixed_rows::<3>(0).into_owned();
 
                 let mut v_lin_imu_write = v_lin_imu_clone.write().unwrap();
                 *v_lin_imu_write = z_imu_v;
@@ -579,7 +575,6 @@ fn main() {
             }
         }
     });
-    */
 
     // Correction using IMU ----------
     let ekf_data_clone = ekf_data.clone();
@@ -637,7 +632,6 @@ fn main() {
             z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
             z[6] = imu[6];
 
-
             // Correction
             let (
                 mut x_est_posterior,
@@ -654,31 +648,11 @@ fn main() {
                 R,
             );
 
-            // Remove roll and pitch position and velocity
-            // This is because we estimate ship states, roll and pitch states are irrelevant for estimating ships position and velocity
-            // If roll and pitch were anything than 0 the ship would be rolled over game over
-            // Also because of euler angles if these come close to +- pi/2 it will get a singularity
-            x_est_posterior[3] = 0.0; // Roll velocity
-            x_est_posterior[4] = 0.0; // Pitch velocity
-            x_est_posterior[9] = 0.0; // Roll
-            x_est_posterior[10] = 0.0; // Pitch
+            x_est_posterior = limit_states(x_est_posterior);
 
-            // Make angle continuous from sharp pi to -pi decent
-            // Important for state predictor to have angles in continuous form, unlike IMU sharp pi to -pi decent
-            x_est_posterior[11] = (x_est_posterior[11] + PI) % (2.0 * PI);
-            if x_est_posterior[11] > PI {
-                x_est_posterior[11] -= 2.0 * PI;
-            }
-
-            // ! DEBUGGING
-            println!("z: {:?}", z);
-            println!("h: {:?}", h_imu(
-                x_est_pri,
-                Vector3::from_column_slice(&config.sensors.imu_placement),
-                Vector3::from_column_slice(&config.sensors.imu_rotation),
-            ));
-            println!("x_est_posterior: {:?}", x_est_posterior);
-            println!();
+            // Must also unwrap yaw because IMU has -pi to pi witch would mean sudden sharp peaks
+            // This is why we need ti unwrap IMU angle estimate into estimate that other correction and prediction functions can run as well
+            x_est_posterior[11] = unwrap_yaw(x_est_pri[11], x_est_posterior[11]);
 
             // Update EKF states
             {
