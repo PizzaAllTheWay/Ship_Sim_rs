@@ -247,24 +247,11 @@ pub fn h_gnss(
     y
 }
 
-fn singularity_wrap(angle: f32) -> f32 {
-    let mut corrected = angle;
-    let diff = angle.abs() - PI;
-    if diff.abs() < 0.1 {
-        corrected = PI;
-    }
-
-    return corrected;
-}
-
 fn h_imu(
     x: Vector12<f32>,            // Estimated full state vector
     imu_placement: Vector3<f32>, // IMU placement: [x, y, z] in body frame
     imu_rotation: Vector3<f32>,  // IMU placement: [roll, pitch, yaw] in IMU frame
 ) -> Vector7<f32> {
-    // Get constants
-    let mag_north_w: Vector3<f32> = Vector3::new(0.0, 1.0, 0.0);
-
     // Split up states into manageable subparts
     let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
     let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
@@ -273,7 +260,6 @@ fn h_imu(
     // Convert Ship to body frame
     let v_lin_ship: Vector3<f32> = kinematics::linear_velocity_world_to_body(euler, v_lin_w);
     let v_ang_ship: Vector3<f32> = kinematics::euler_dot_to_angular_velocity_body(euler, euler_dot);
-    let mag_north_ship: Vector3<f32> = kinematics::rot_world_to_body(euler) * mag_north_w;
 
     // Convert Ship to object frame
     let imu_velocity_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no linear velocity in the ship
@@ -290,25 +276,7 @@ fn h_imu(
     let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
     v_ang_imu *= -1.0; // ? Need to invert the velocities for some reason (I have no idea why because its literally same transform as in simulation)
 
-    // Magnetometer singularity handler
-    let mut mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
-    
-    // HARDEN against near-zero
-    let eps = 0.01; // You can tune this
-    if mag_imu_vec.norm() < eps {
-        mag_imu_vec = Vector3::new(eps, 0.0, 0.0); // Fake a small vector in +X direction
-    }
-
-    let mut mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
-
-    // Check for values close to singularity
-    let diff = mag_imu.abs() - PI;
-    if diff.abs() < 0.1 {
-        mag_imu = PI;
-    }
-
-    // Need to eliminate sudden jumps between +pi and -pi, ie the singularity point
-    mag_imu = singularity_wrap(mag_imu);
+    let mag_imu = euler[2]; // Just assume its 1:1 yaw angle no rotation transforms
 
     // Pack it
     let mut y = Vector7::<f32>::zeros();
@@ -361,7 +329,7 @@ fn limit_states(x: Vector12<f32>) -> Vector12<f32> {
 /// # Output:
 /// - New angle, unwrapped and continuous (can grow beyond ±2π)
 fn unwrap_angle(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
-    let mut delta = new_wrapped - (prev_unwrapped % (2.0 * PI));
+    let mut delta = (-new_wrapped) - (prev_unwrapped % (2.0 * PI));
     
     if delta > PI {
         delta -= 2.0 * PI;
@@ -572,7 +540,7 @@ fn main() {
             x_est_posterior = limit_states(x_est_posterior);
 
             // In addition we must update IMU data to absolute certainty values from GNSS where it applies
-            // Mainly to linear velocity IMU integral and drift can be reset
+            // Mainly to linear velocity IMU integral and drift to be reset
             {
                 // Convert measured GNSS velocity to IMU velocity integral
                 let z_imu = h_imu(
@@ -586,7 +554,7 @@ fn main() {
 
                 let mut v_lin_imu_write = v_lin_imu_clone.write().unwrap();
                 *v_lin_imu_write = z_imu_v;
-            } 
+            }
             {
                 let mut R_imu_write = R_imu_clone.write().unwrap();
                 *R_imu_write = R_imu_0;
@@ -615,6 +583,9 @@ fn main() {
         // Integration states
         let mut last_time = Instant::now();
 
+        // Unwrapped yaw follower
+        let mut mag_imu = 0.0;
+
         // Get the IMU drift
         let mut imu_drift_factor: Vector7::<f32> = Vector7::<f32>::from_row_slice(&config.estimators.imu_drift);
         imu_drift_factor += Vector7::<f32>::from_element(1.0);
@@ -640,28 +611,31 @@ fn main() {
             let mut v_lin_imu = *v_lin_imu_clone.read().unwrap();
             v_lin_imu += dt * accel;
 
+            // unwrap IMU magnetometer angle to be continuous instead of -pi to pi
+            mag_imu = unwrap_angle(mag_imu, imu[6]);
+
+            // For measurements we need inverted magnetometer values
+            let mag_imu_inv = mag_imu + config.sensors.imu_rotation[2] * 2.0 - PI/2.0;
+
             // Add drift to the measurement noise matrix
             let mut R: Matrix7x7<f32> = *R_imu_clone.read().unwrap();
             R = R.component_mul(&imu_drift_matrix);
 
-            // Update IMU drift matrix and velocity immediately 
+            // Update IMU velocity and drift matrix
             {
                 let mut v_lin_imu_write = v_lin_imu_clone.write().unwrap();
                 *v_lin_imu_write = v_lin_imu;
-            } 
+            }
             {
                 let mut R_imu_write = R_imu_clone.write().unwrap();
                 *R_imu_write = R;
             }
             
-            // Build vector measurement with integrated acceleration
+            // Build measurement vector 
             let mut z = Vector7::<f32>::zeros();
             z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
             z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
-            z[6] = imu[6];
-
-            // Need to eliminate sudden jumps between +pi and -pi, ie the singularity point
-            z[6] = singularity_wrap(imu[6]);
+            z[6] = mag_imu_inv;
 
             // Correction
             let (
@@ -680,26 +654,6 @@ fn main() {
             );
 
             x_est_posterior = limit_states(x_est_posterior);
-
-            // Must also unwrap yaw because IMU has -pi to pi witch would mean sudden sharp peaks
-            // This is why we need ti unwrap IMU angle estimate into estimate that other correction and prediction functions can run as well
-            x_est_posterior[11] = unwrap_angle(x_est_pri[11], x_est_posterior[11]);
-
-            // ! DEBUGGING !
-            println!("x_est_pri: {:?}", x_est_pri);
-            println!("z: {:?}", z);
-            println!("h: {:?}", h_imu(
-                x_est_pri,
-                Vector3::from_column_slice(&config.sensors.imu_placement),
-                Vector3::from_column_slice(&config.sensors.imu_rotation),
-            ));
-            println!("x_est_posterior: {:?}", x_est_posterior);
-            println!("y: {:?}", (z - h_imu(
-                x_est_pri,
-                Vector3::from_column_slice(&config.sensors.imu_placement),
-                Vector3::from_column_slice(&config.sensors.imu_rotation),
-            )));
-            println!();
 
             // Update EKF states
             {
