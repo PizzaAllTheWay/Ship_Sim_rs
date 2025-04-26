@@ -26,11 +26,11 @@ use std::f32::consts::PI;
 
 // System State data structure ----------
 pub type Vector7<T> = SVector<T, 7>;
-pub type Vector9<T> = SVector<T, 9>;
+pub type Vector10<T> = SVector<T, 10>;
 pub type Vector12<T> = SVector<T, 12>;
 
 pub type Matrix7x7<T> = SMatrix::<T, 7, 7>;
-pub type Matrix9x9<T> = SMatrix::<T, 9, 9>;
+pub type Matrix10x10<T> = SMatrix::<T, 10, 10>;
 pub type Matrix12x2<T> = SMatrix::<T, 12, 2>;
 pub type Matrix9x12<T> = SMatrix::<T, 9, 12>;
 pub type Matrix12x9<T> = SMatrix::<T, 12, 9>;
@@ -61,7 +61,7 @@ struct EstimatorsConfig {
     kf_pub_frequency: f32,
     P_0: [f32; 12],
     Q: [f32; 12],
-    R_gnss: [f32; 9],
+    R_gnss: [f32; 10],
     R_imu: [f32; 7],
     imu_drift: [f32; 7],
 }
@@ -184,7 +184,7 @@ pub fn h_gnss(
     x: Vector12<f32>,
     antenna1_placement: Vector3<f32>,
     antenna2_placement: Vector3<f32>,
-) -> Vector9<f32> {
+) -> Vector10<f32> {
     // Split up states into manageable subparts
     let v_lin_w: Vector3<f32> = x.fixed_rows::<3>(0).into(); // [vx, vy, vz]
     let euler_dot: Vector3<f32> = x.fixed_rows::<3>(3).into(); // [angular velocity in roll, pitch, yaw]
@@ -230,19 +230,23 @@ pub fn h_gnss(
     );
 
     // Convert Antennas to world frame
-    let r_lin_antenna1_w: Vector3<f32> = kinematics::rot_body_to_world(euler) * r_lin_antenna1_b + r_lin_w;
-    let r_lin_antenna2_w: Vector3<f32> = kinematics::rot_body_to_world(euler) * r_lin_antenna2_b + r_lin_w;
+    let r_lin_antenna1_w: Vector3<f32> = r_lin_antenna1_b + r_lin_w;
+    let r_lin_antenna2_w: Vector3<f32> = r_lin_antenna2_b + r_lin_w;
     let v_lin_antenna1_w: Vector3<f32> = kinematics::linear_velocity_body_to_world(euler, v_lin_antenna1_b);
     let v_lin_antenna2_w: Vector3<f32> = kinematics::linear_velocity_body_to_world(euler, v_lin_antenna2_b);
 
     // Average velocity
     let v_avg = (v_lin_antenna1_w + v_lin_antenna2_w) * 0.5;
 
+    // Yaw angle
+    let yaw_angle = euler[2];
+
     // Save transformed vector
-    let mut y = Vector9::<f32>::zeros();
+    let mut y = Vector10::<f32>::zeros();
     y.fixed_rows_mut::<3>(0).copy_from(&r_lin_antenna1_w);
     y.fixed_rows_mut::<3>(3).copy_from(&r_lin_antenna2_w);
     y.fixed_rows_mut::<3>(6).copy_from(&v_avg);
+    y[9] = yaw_angle;
 
     y
 }
@@ -338,6 +342,21 @@ fn unwrap_angle(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
     }
 
     prev_unwrapped + delta
+}
+
+fn angle_between_points(front: Vector3<f32>, back: Vector3<f32>) -> f32 {
+    let dx = back.x - front.x;
+    let dy = back.y - front.y;
+    let mut angle = dy.atan2(dx);
+
+    // wrap to [-π, π]
+    if angle > PI {
+        angle -= 2.0 * PI;
+    } else if angle < -PI {
+        angle += 2.0 * PI;
+    }
+
+    angle
 }
 
 /// Print any matrix (SMatrix) nicely with fixed formatting
@@ -507,8 +526,11 @@ fn main() {
     thread::spawn(move || {
         // Initialize system ----------
         // Get confidence matrix for our measurements
-        let R_vector: Vector9<f32> = Vector9::<f32>::from_row_slice(&config.estimators.R_gnss);
-        let R: Matrix9x9<f32> = Matrix9x9::<f32>::from_diagonal(&R_vector);
+        let R_vector: Vector10<f32> = Vector10::<f32>::from_row_slice(&config.estimators.R_gnss);
+        let R: Matrix10x10<f32> = Matrix10x10::<f32>::from_diagonal(&R_vector);
+
+        // Unwrapped yaw follower
+        let mut yaw_gnss = 0.0;
 
         loop {
             // Wait for GNSS data
@@ -517,9 +539,22 @@ fn main() {
             let gnss: TOPICS::gnss::DataType = udp_utils::decode_json(json_str);
 
             // EKF States
-            let z = gnss;
             let x_est_pri = *ekf_data_clone.x_est_pri.read().unwrap();
             let P_pri = *ekf_data_clone.P_pri.read().unwrap();
+
+            // Calculate angle between GNSS Antennas and unwrap them
+            let antenna1_pos: Vector3<f32> = gnss.fixed_rows::<3>(0).into(); // [x, y, z]
+            let antenna2_pos: Vector3<f32> = gnss.fixed_rows::<3>(3).into(); // [x, y, z]
+            let antenna_angle = angle_between_points(antenna1_pos, antenna2_pos);
+            yaw_gnss = unwrap_angle(yaw_gnss, antenna_angle);
+
+            // For measurements we need inverted gnss angle values
+            let yaw_gnss_inv = yaw_gnss + config.sensors.imu_rotation[2] * 2.0 - PI/2.0;
+
+            // Build measurement vector 
+            let mut z = Vector10::<f32>::zeros();
+            z.fixed_rows_mut::<9>(0).copy_from(&gnss); // Antenna 1 and 2 positions + Ships Velocity
+            z[9] = yaw_gnss_inv;
 
             // Correction
             let (
@@ -538,6 +573,9 @@ fn main() {
             );
 
             x_est_posterior = limit_states(x_est_posterior);
+
+            // !!! NOT IDEAL, GNSS SHOULD FIGURE THIS SHIT OUT ITSELF
+            x_est_posterior[11] = x_est_pri[11];
 
             // In addition we must update IMU data to absolute certainty values from GNSS where it applies
             // Mainly to linear velocity IMU integral and drift to be reset
@@ -571,7 +609,7 @@ fn main() {
             }
         }
     });
-
+    
     // Correction using IMU ----------
     let ekf_data_clone = ekf_data.clone();
     #[allow(non_snake_case)]

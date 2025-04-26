@@ -77,6 +77,7 @@ R_gnss = [
     1.600936, 1.619552, 5.448326, # Measurement trust in: antenna1 [x, y, z]
     1.560227, 1.512290, 5.518882, # Measurement trust in: antenna2 [x, y, z]
     0.824833, 0.824833, 1.096953, # Measurement trust in: velocity [vx, vy, vz]
+    0.100000,                     # Measurement trust in: angle [yaw]
 ]
 
 R_imu = [
