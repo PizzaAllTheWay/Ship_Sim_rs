@@ -66,9 +66,9 @@ P_0 = [
 
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
-    10.0, 10.0, 10.0, # Model trust in: [vx, vy, vz]
-    10.0, 10.0, 10.0, # Model trust in: [wx, wy, wz]
-    5.0, 5.0, 5.0, # Model trust in: [x, y, z]
+    10.0, 10.0, 20.0, # Model trust in: [vx, vy, vz]
+    10.0, 10.0, 20.0, # Model trust in: [wx, wy, wz]
+    10.0, 10.0, 2.0, # Model trust in: [x, y, z]
     5.0, 5.0, 5.0, # Model trust in: [roll, pitch, yaw]
 ]
 

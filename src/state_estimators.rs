@@ -247,6 +247,16 @@ pub fn h_gnss(
     y
 }
 
+fn singularity_wrap(angle: f32) -> f32 {
+    let mut corrected = angle;
+    let diff = angle.abs() - PI;
+    if diff.abs() < 0.1 {
+        corrected = PI;
+    }
+
+    return corrected;
+}
+
 fn h_imu(
     x: Vector12<f32>,            // Estimated full state vector
     imu_placement: Vector3<f32>, // IMU placement: [x, y, z] in body frame
@@ -275,14 +285,30 @@ fn h_imu(
         imu_placement_in_ship,
     );
     v_lin_imu = kinematics::rot_body_to_object(imu_rotation) * v_lin_imu; // Rotate into IMU frame
-    v_lin_imu *= -1.0; // ? Need to invert the velocities for some reason (I have no idea why because its literally same transform as in simulation)
 
     let imu_v_ang_in_ship = Vector3::<f32>::zeros(); // IMU sits tight, no angular velocity in the ship
     let mut v_ang_imu: Vector3<f32> = kinematics::angular_velocity_body_to_object(imu_v_ang_in_ship, v_ang_ship);
     v_ang_imu *= -1.0; // ? Need to invert the velocities for some reason (I have no idea why because its literally same transform as in simulation)
 
-    let mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
-    let mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
+    // Magnetometer singularity handler
+    let mut mag_imu_vec = kinematics::rot_object_to_body(imu_rotation) * mag_north_ship;
+    
+    // HARDEN against near-zero
+    let eps = 0.01; // You can tune this
+    if mag_imu_vec.norm() < eps {
+        mag_imu_vec = Vector3::new(eps, 0.0, 0.0); // Fake a small vector in +X direction
+    }
+
+    let mut mag_imu = mag_imu_vec.y.atan2(mag_imu_vec.x); // extract heading in world frame
+
+    // Check for values close to singularity
+    let diff = mag_imu.abs() - PI;
+    if diff.abs() < 0.1 {
+        mag_imu = PI;
+    }
+
+    // Need to eliminate sudden jumps between +pi and -pi, ie the singularity point
+    mag_imu = singularity_wrap(mag_imu);
 
     // Pack it
     let mut y = Vector7::<f32>::zeros();
@@ -311,28 +337,30 @@ fn limit_states(x: Vector12<f32>) -> Vector12<f32> {
     x_limited[9] = 0.0;  // Roll
     x_limited[10] = 0.0; // Pitch
 
+    // Limit z velocity as it can cause unstably in approximated ship model
+    x_limited[2] = x[2].clamp(-1.0, 1.0); // Z velocity
+
     // Clamp physically impossible velocities
-    x_limited[0] = x[0].clamp(-10.0, 10.0); // X velocity
-    x_limited[1] = x[1].clamp(-10.0, 10.0); // Y velocity
-    x_limited[2] = x[2].clamp(-10.0, 10.0); // Z velocity
-    x_limited[5] = x[5].clamp(-10.0, 10.0); // Yaw velocity
+    x_limited[0] = x[0].clamp(-20.0, 20.0); // X velocity
+    x_limited[1] = x[1].clamp(-20.0, 20.0); // Y velocity
+    x_limited[5] = x[5].clamp(-5.0, 5.0); // Yaw velocity
 
     x_limited
 }
 
-/// Unwrap yaw to preserve continuous angle rotation over time
+/// Unwrap angle to preserve continuous angle rotation over time
 ///
-/// Takes previous unwrapped yaw and a new wrapped yaw (from IMU or measurement),
-/// calculates the shortest angular difference, and adds it to the previous yaw.
-/// This avoids jumps at ±π and allows full yaw accumulation (e.g., 0 → 2π → 4π → ...).
+/// Takes previous unwrapped angle and a new wrapped angle (from IMU or measurement),
+/// calculates the shortest angular difference, and adds it to the previous angle.
+/// This avoids jumps at ±π and allows full angle accumulation (e.g., 0 → 2π → 4π → ...).
 ///
 /// # Inputs:
-/// - `prev_unwrapped`: Previous yaw in unwrapped continuous radians
-/// - `new_wrapped`: New yaw in wrapped form (range -π to π or 0 to 2π)
+/// - `prev_unwrapped`: Previous angle in unwrapped continuous radians
+/// - `new_wrapped`: New angle in wrapped form (range -π to π or 0 to 2π)
 ///
 /// # Output:
-/// - New yaw, unwrapped and continuous (can grow beyond ±2π)
-fn unwrap_yaw(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
+/// - New angle, unwrapped and continuous (can grow beyond ±2π)
+fn unwrap_angle(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
     let mut delta = new_wrapped - (prev_unwrapped % (2.0 * PI));
     
     if delta > PI {
@@ -554,7 +582,7 @@ fn main() {
                 );
 
                 // Invert linear velocity because opposite direction 
-                let z_imu_v = -z_imu.fixed_rows::<3>(0).into_owned();
+                let z_imu_v = z_imu.fixed_rows::<3>(0).into_owned();
 
                 let mut v_lin_imu_write = v_lin_imu_clone.write().unwrap();
                 *v_lin_imu_write = z_imu_v;
@@ -632,6 +660,9 @@ fn main() {
             z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
             z[6] = imu[6];
 
+            // Need to eliminate sudden jumps between +pi and -pi, ie the singularity point
+            z[6] = singularity_wrap(imu[6]);
+
             // Correction
             let (
                 mut x_est_posterior,
@@ -652,7 +683,23 @@ fn main() {
 
             // Must also unwrap yaw because IMU has -pi to pi witch would mean sudden sharp peaks
             // This is why we need ti unwrap IMU angle estimate into estimate that other correction and prediction functions can run as well
-            x_est_posterior[11] = unwrap_yaw(x_est_pri[11], x_est_posterior[11]);
+            x_est_posterior[11] = unwrap_angle(x_est_pri[11], x_est_posterior[11]);
+
+            // ! DEBUGGING !
+            println!("x_est_pri: {:?}", x_est_pri);
+            println!("z: {:?}", z);
+            println!("h: {:?}", h_imu(
+                x_est_pri,
+                Vector3::from_column_slice(&config.sensors.imu_placement),
+                Vector3::from_column_slice(&config.sensors.imu_rotation),
+            ));
+            println!("x_est_posterior: {:?}", x_est_posterior);
+            println!("y: {:?}", (z - h_imu(
+                x_est_pri,
+                Vector3::from_column_slice(&config.sensors.imu_placement),
+                Vector3::from_column_slice(&config.sensors.imu_rotation),
+            )));
+            println!();
 
             // Update EKF states
             {

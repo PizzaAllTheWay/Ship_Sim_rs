@@ -127,8 +127,8 @@ impl ShipDynamics {
         // Dampening ----------
         // Add a small dampening, helps get rid of oscitation and enhances numerical stability
         let d_lin_matrix = Matrix3::new(
-            200.0,  0.0,  0.0,
-            0.0,  200_000.0,  0.0,
+            1_000.0,  0.0,  0.0,
+            0.0,  500_000.0,  0.0,
             0.0,  0.0,  100_000.0,
         );
         let d_ang: f32 = 50_000.0;
