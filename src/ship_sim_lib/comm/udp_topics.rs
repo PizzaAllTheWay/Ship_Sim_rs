@@ -137,13 +137,21 @@ pub mod TOPICS {
         pub type DataType = Vector7<f32>;
     }
 
-    // Data Type [KF<f32>]:
+    // Data Type [Extended Kalman Filter<f32>]:
     // Estimate: [(velocity linear), (velocity angular), (position linear), (position angular)]
-    // Estimate Uncertainty: [(velocity linear), (velocity angular), (position linear), (position angular)]
     pub mod ekf {
         use super::*;
         use Vector12;
         pub const PORT: u16 = 5590;
+        pub type DataType = Vector12<f32>;
+    }
+
+    // Data Type [Unscented Kalman Filter<f32>]:
+    // Estimate: [(velocity linear), (velocity angular), (position linear), (position angular)]
+    pub mod ukf {
+        use super::*;
+        use Vector12;
+        pub const PORT: u16 = 5591;
         pub type DataType = Vector12<f32>;
     }
 }

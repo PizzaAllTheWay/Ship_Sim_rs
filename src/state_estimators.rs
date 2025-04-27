@@ -333,6 +333,18 @@ fn limit_states(x: Vector12<f32>) -> Vector12<f32> {
 /// # Output:
 /// - New angle, unwrapped and continuous (can grow beyond ±2π)
 fn unwrap_angle(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
+    let mut delta = new_wrapped - (prev_unwrapped % (2.0 * PI));
+    
+    if delta > PI {
+        delta -= 2.0 * PI;
+    } else if delta < -PI {
+        delta += 2.0 * PI;
+    }
+
+    prev_unwrapped + delta
+}
+
+fn unwrap_angle_inv(prev_unwrapped: f32, new_wrapped: f32) -> f32 {
     let mut delta = (-new_wrapped) - (prev_unwrapped % (2.0 * PI));
     
     if delta > PI {
@@ -548,13 +560,13 @@ fn main() {
             let antenna_angle = angle_between_points(antenna1_pos, antenna2_pos);
             yaw_gnss = unwrap_angle(yaw_gnss, antenna_angle);
 
-            // For measurements we need inverted gnss angle values
-            let yaw_gnss_inv = yaw_gnss + config.sensors.imu_rotation[2] * 2.0 - PI/2.0;
+            // For GNSS measurements we don't need to rotate or adjust, the values are already given properly and absolute
+            let yaw_gnss_adj = yaw_gnss;
 
             // Build measurement vector 
             let mut z = Vector10::<f32>::zeros();
             z.fixed_rows_mut::<9>(0).copy_from(&gnss); // Antenna 1 and 2 positions + Ships Velocity
-            z[9] = yaw_gnss_inv;
+            z[9] = yaw_gnss_adj;
 
             // Correction
             let (
@@ -573,9 +585,6 @@ fn main() {
             );
 
             x_est_posterior = limit_states(x_est_posterior);
-
-            // !!! NOT IDEAL, GNSS SHOULD FIGURE THIS SHIT OUT ITSELF
-            x_est_posterior[11] = x_est_pri[11];
 
             // In addition we must update IMU data to absolute certainty values from GNSS where it applies
             // Mainly to linear velocity IMU integral and drift to be reset
@@ -650,10 +659,10 @@ fn main() {
             v_lin_imu += dt * accel;
 
             // unwrap IMU magnetometer angle to be continuous instead of -pi to pi
-            mag_imu = unwrap_angle(mag_imu, imu[6]);
+            mag_imu = unwrap_angle_inv(mag_imu, imu[6]);
 
-            // For measurements we need inverted magnetometer values
-            let mag_imu_inv = mag_imu + config.sensors.imu_rotation[2] * 2.0 - PI/2.0;
+            // For measurements we need to rotate magnetometer values to proper position
+            let mag_imu_adj = mag_imu + config.sensors.imu_rotation[2] * 2.0 - PI/2.0;
 
             // Add drift to the measurement noise matrix
             let mut R: Matrix7x7<f32> = *R_imu_clone.read().unwrap();
@@ -673,7 +682,7 @@ fn main() {
             let mut z = Vector7::<f32>::zeros();
             z.fixed_rows_mut::<3>(0).copy_from(&v_lin_imu); // velocity
             z.fixed_rows_mut::<3>(3).copy_from(&imu.fixed_rows::<3>(3)); // gyro
-            z[6] = mag_imu_inv;
+            z[6] = mag_imu_adj;
 
             // Correction
             let (

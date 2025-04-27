@@ -49,8 +49,11 @@ pub struct SharedState {
     pub imu_gyro: Arc<RwLock<Vec<Vector3<f32>>>>, // Angular velocity gyro (Body Frame): [roll, pitch, yaw]
     pub imu_mag: Arc<RwLock<Vec<f32>>>, // Angle magnetic compass (World Frame): [yaw]
 
-    pub show_kf_estimate: Arc<RwLock<bool>>,
-    pub kf_estimate: Arc<RwLock<Vector6<f32>>>, // linear and angular position in world frame 6DOF
+    pub show_ekf_estimate: Arc<RwLock<bool>>,
+    pub ekf_estimate: Arc<RwLock<Vector6<f32>>>, // linear and angular position in world frame 6DOF
+
+    pub show_ukf_estimate: Arc<RwLock<bool>>,
+    pub ukf_estimate: Arc<RwLock<Vector6<f32>>>, // linear and angular position in world frame 6DOF
 }
 
 
@@ -68,8 +71,10 @@ pub fn draw_scene(
     camera_offset: [f32; 2],
     zoom: f32,
 
-    show_kf_estimate: bool,
-    kf_estimate: Vector6<f32>,
+    show_ekf_estimate: bool,
+    ekf_estimate: Vector6<f32>,
+    show_ukf_estimate: bool,
+    ukf_estimate: Vector6<f32>,
 
     show_external_forces: bool,
     wind_speed_vector: Vector3<f32>,
@@ -148,16 +153,16 @@ pub fn draw_scene(
     painter.add(Shape::convex_polygon(transformed.clone(), Color32::RED, Stroke::NONE));
     painter.add(Shape::closed_line(transformed, Stroke::new(2.0, Color32::BLACK)));
 
-    // ===== Draw Kalman Filter Estimate =====
-    if show_kf_estimate {
+    // ===== Draw Extended Kalman Filter Estimate =====
+    if show_ekf_estimate {
         // Translucent boat shape using KF estimate
-        let kf_angle = kf_estimate[5];
+        let ekf_angle = ekf_estimate[5];
         let transformed_kf: Vec<Pos2> = ship_shape
             .iter()
             .map(|v| {
-                let x = v.x * kf_angle.cos() - v.y * kf_angle.sin();
-                let y = v.x * kf_angle.sin() + v.y * kf_angle.cos();
-                to_screen([kf_estimate[0] + x, kf_estimate[1] + y])
+                let x = v.x * ekf_angle.cos() - v.y * ekf_angle.sin();
+                let y = v.x * ekf_angle.sin() + v.y * ekf_angle.cos();
+                to_screen([ekf_estimate[0] + x, ekf_estimate[1] + y])
             })
             .collect();
     
@@ -169,7 +174,32 @@ pub fn draw_scene(
         ));
         painter.add(Shape::closed_line(
             transformed_kf,
-            Stroke::new(2.0, Color32::from_rgb(0, 100, 255)), // solid outline
+            Stroke::new(2.0, Color32::from_rgb(0, 100, 255)), // solid blue outline
+        ));
+    }
+
+    // ===== Draw Extended Kalman Filter Estimate =====
+    if show_ukf_estimate {
+        // Translucent boat shape using KF estimate
+        let ukf_angle = ukf_estimate[5];
+        let transformed_kf: Vec<Pos2> = ship_shape
+            .iter()
+            .map(|v| {
+                let x = v.x * ukf_angle.cos() - v.y * ukf_angle.sin();
+                let y = v.x * ukf_angle.sin() + v.y * ukf_angle.cos();
+                to_screen([ukf_estimate[0] + x, ukf_estimate[1] + y])
+            })
+            .collect();
+    
+        // Draw translucent green boat
+        painter.add(Shape::convex_polygon(
+            transformed_kf.clone(),
+            Color32::from_rgba_unmultiplied(0, 255, 100, 100), // translucent green fill
+            Stroke::NONE,
+        ));
+        painter.add(Shape::closed_line(
+            transformed_kf,
+            Stroke::new(2.0, Color32::from_rgb(0, 255, 100)), // solid green outline
         ));
     }
 
@@ -497,9 +527,13 @@ impl eframe::App for SimulatorWindow {
                     ui.heading("Estimators");
                     ui.label("");
 
-                    // IMU Interface
-                    let mut show_kf_estimate = self.state.show_kf_estimate.write().unwrap();
-                    ui.checkbox(&mut *show_kf_estimate, "Show EKF Estimate");
+                    // Extended Kalman Filter
+                    let mut show_ekf_estimate = self.state.show_ekf_estimate.write().unwrap();
+                    ui.checkbox(&mut *show_ekf_estimate, "Show EKF Estimate");
+
+                    // Unscented Kalman Filter
+                    let mut show_ukf_estimate = self.state.show_ukf_estimate.write().unwrap();
+                    ui.checkbox(&mut *show_ukf_estimate, "Show UKF Estimate");
                 });
             });
 
@@ -659,8 +693,10 @@ impl eframe::App for SimulatorWindow {
 
             let pos = *self.state.ship_pos.read().unwrap();
 
-            let show_kf_estimate = *self.state.show_kf_estimate.read().unwrap();
-            let kf_estimate = *self.state.kf_estimate.read().unwrap();
+            let show_ekf_estimate = *self.state.show_ekf_estimate.read().unwrap();
+            let ekf_estimate = *self.state.ekf_estimate.read().unwrap();
+            let show_ukf_estimate = *self.state.show_ukf_estimate.read().unwrap();
+            let ukf_estimate = *self.state.ukf_estimate.read().unwrap();
 
             let show_external_forces = *self.state.show_external_forces.read().unwrap();
             let wind_noise = *self.state.wind_noise.read().unwrap();
@@ -675,8 +711,10 @@ impl eframe::App for SimulatorWindow {
                 pos,
                 self.camera_offset,
                 self.zoom,
-                show_kf_estimate,
-                kf_estimate,
+                show_ekf_estimate,
+                ekf_estimate,
+                show_ukf_estimate,
+                ukf_estimate,
                 show_external_forces,
                 wind_speed_vector,
                 wind_noise,

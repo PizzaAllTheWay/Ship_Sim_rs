@@ -160,24 +160,43 @@ fn main() {
     });
     // GET - IMU (STOP) ==================================================
 
-    // GET - Kalman Filter Estimate (START) ==================================================
+    // GET - Extended Kalman Filter Estimate (START) ==================================================
     let gui_state_clone = gui_state.clone();
     thread::spawn(move || {
         loop {
             // Wait for states
             let msg = udp_utils::subscribe(TOPICS::ekf::PORT).unwrap();
             let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
-            let kf: TOPICS::ekf::DataType = udp_utils::decode_json(json_str);
-            let x_est = kf;
+            let ekf: TOPICS::ekf::DataType = udp_utils::decode_json(json_str);
+            let x_est = ekf;
 
             // Update GUI with new states
             {
-                let mut kf_estimate = gui_state_clone.kf_estimate.write().unwrap();
-                *kf_estimate = x_est.fixed_rows::<6>(6).into();
+                let mut ekf_estimate = gui_state_clone.ekf_estimate.write().unwrap();
+                *ekf_estimate = x_est.fixed_rows::<6>(6).into();
             } 
         }
     });
-    // GET - Kalman Filter Estimate (STOP) ==================================================
+    // GET - Extended Kalman Filter Estimate (STOP) ==================================================
+
+    // GET - Unscented Kalman Filter Estimate (START) ==================================================
+    let gui_state_clone = gui_state.clone();
+    thread::spawn(move || {
+        loop {
+            // Wait for states
+            let msg = udp_utils::subscribe(TOPICS::ukf::PORT).unwrap();
+            let json_str = str::from_utf8(&msg).expect("Invalid UTF-8");
+            let ukf: TOPICS::ukf::DataType = udp_utils::decode_json(json_str);
+            let x_est = ukf;
+
+            // Update GUI with new states
+            {
+                let mut ukf_estimate = gui_state_clone.ukf_estimate.write().unwrap();
+                *ukf_estimate = x_est.fixed_rows::<6>(6).into();
+            } 
+        }
+    });
+    // GET - Unscented Kalman Filter Estimate (STOP) ==================================================
 
 
 
@@ -329,6 +348,8 @@ fn main() {
     *gui_state_clone.show_gnss_data.write().unwrap() = false; // Start GUI with gnss data invisible
     *gui_state_clone.show_imu_graphs.write().unwrap() = false; // Start GUI with imu data invisible
     *gui_state_clone.imu_graphs_period.write().unwrap() = 6000; // Start by showing only the latest specified amount of datapoint of the IMU sensor
+    *gui_state_clone.show_ekf_estimate.write().unwrap() = false; // Start by hiding Extended Kalman Filter Estimate
+    *gui_state_clone.show_ukf_estimate.write().unwrap() = false; // Start by hiding Unscented Kalman Filter Estimate
 
     // Run GUI
     gui::window(gui_state_clone);
