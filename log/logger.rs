@@ -68,6 +68,7 @@ fn main() {
     spawn_logger!(gnss,                "gnss.csv");
     spawn_logger!(imu,                 "imu.csv");
     spawn_logger!(ekf,                 "ekf.csv");
+    spawn_logger!(ukf,                 "ukf.csv");
 
     for h in handles {
         h.join().unwrap();

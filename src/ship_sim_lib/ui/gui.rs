@@ -169,12 +169,12 @@ pub fn draw_scene(
         // Draw translucent blue boat
         painter.add(Shape::convex_polygon(
             transformed_kf.clone(),
-            Color32::from_rgba_unmultiplied(0, 100, 255, 100), // translucent blue fill
+            Color32::from_rgba_unmultiplied(100, 100, 255, 100), // translucent blue ish fill
             Stroke::NONE,
         ));
         painter.add(Shape::closed_line(
             transformed_kf,
-            Stroke::new(2.0, Color32::from_rgb(0, 100, 255)), // solid blue outline
+            Stroke::new(2.0, Color32::from_rgb(100, 100, 255)), // soft blue ish outline
         ));
     }
 
@@ -194,12 +194,12 @@ pub fn draw_scene(
         // Draw translucent green boat
         painter.add(Shape::convex_polygon(
             transformed_kf.clone(),
-            Color32::from_rgba_unmultiplied(0, 255, 100, 100), // translucent green fill
+            Color32::from_rgba_unmultiplied(100, 255, 100, 100), // translucent green ish fill
             Stroke::NONE,
         ));
         painter.add(Shape::closed_line(
             transformed_kf,
-            Stroke::new(2.0, Color32::from_rgb(0, 255, 100)), // solid green outline
+            Stroke::new(2.0, Color32::from_rgb(100, 255, 100)), // soft green ish outline
         ));
     }
 
@@ -739,7 +739,7 @@ impl eframe::App for SimulatorWindow {
 pub fn window(state: SharedState) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 400.0]) // <- Set your window size here
+            .with_inner_size([1200.0, 500.0]) // <- Set your window size here
             .with_title("Ship Simulator GUI"),
         ..Default::default()
     };

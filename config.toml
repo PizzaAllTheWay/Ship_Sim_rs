@@ -55,7 +55,7 @@ imu_gyro_fsr = 17.45 # [rad/s] full scale resolution
 imu_mag_fsr = 6.28 # [rad] full scale resolution
 
 [estimators]
-kf_pub_frequency = 100.00 # [Hz]
+estimator_pub_frequency = 100.00 # [Hz]
 # ?NOTE: Never have 0.0 in P_0, as that indicates we are 100% confident in our model from the start, this means we would not trust the measurements as the estimator would assume we already have perfect model, witch we don't
 P_0 = [
     0.5, 0.5, 0.1, # Uncertainty: [vx, vy, vz]
@@ -64,6 +64,13 @@ P_0 = [
     0.1, 0.1, 0.5, # Uncertainty: [roll, pitch, yaw]
 ]
 
+# P_0 = [
+#     5.5, 5.5, 5.1, # Uncertainty: [vx, vy, vz]
+#     5.1, 5.1, 5.5, # Uncertainty: [wx, wy, wz]
+#     5.0, 5.0, 5.1, # Uncertainty: [x, y, z]
+#     5.1, 5.1, 5.5, # Uncertainty: [roll, pitch, yaw]
+# ]
+
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 Q = [
     10.0, 10.0, 20.0, # Model trust in: [vx, vy, vz]
@@ -71,6 +78,13 @@ Q = [
     10.0, 10.0,  2.0, # Model trust in: [x, y, z]
      5.0,  5.0,  5.0, # Model trust in: [roll, pitch, yaw]
 ]
+
+# Q = [
+#     0.002, 0.002, 0.005, # Model trust in: [vx, vy, vz]
+#     0.2, 0.2, 0.5, # Model trust in: [wx, wy, wz]
+#     0.2, 0.2, 0.5, # Model trust in: [x, y, z]
+#     0.5, 0.5, 1.5, # Model trust in: [roll, pitch, yaw]
+# ]
 
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [
@@ -90,4 +104,9 @@ imu_drift = [
     0.0000003081781019, 0.0000000021636393, 0.0000002311335764, # gyroscope drift [rad/s]
     0.0000081211093400,                                         # magnetometer drift [rad]
 ]
+
+# Unscented Kalman Filter Parameters
+kappa = 0.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
+alpha = 0.101 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
+beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
 
