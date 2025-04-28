@@ -376,7 +376,7 @@ fn angle_between_points(front: Vector3<f32>, back: Vector3<f32>) -> f32 {
 }
 
 /// Set all negative entries in a matrix to zero.
-pub fn clip_negative_to_zero<const N: usize>(mut matrix: SMatrix<f32, N, N>) -> SMatrix<f32, N, N> {
+fn clip_negative_to_zero<const N: usize>(mut matrix: SMatrix<f32, N, N>) -> SMatrix<f32, N, N> {
     matrix.iter_mut().for_each(|x| {
         if *x < 0.0 {
             *x = 0.0;
@@ -826,7 +826,7 @@ fn main() {
                 // Predict
                 let (
                     mut x_est_priori,
-                    mut P_priori
+                    P_priori
                 ) = ukf::predict(
                     |x, u| ode.f(x, u),
                     dt, 
@@ -839,7 +839,6 @@ fn main() {
                 );
 
                 x_est_priori = limit_states(x_est_priori);
-                //P_priori = clip_negative_to_zero(P_priori);
 
                 // Update UKF states
                 {
@@ -909,7 +908,7 @@ fn main() {
                 // Correction
                 let (
                     mut x_est_posterior,
-                    mut P_posterior,
+                    P_posterior,
                 ) = ukf::correct(
                     |x| h_gnss(
                         x.clone(),
@@ -925,7 +924,6 @@ fn main() {
                 );
 
                 x_est_posterior = limit_states(x_est_posterior);
-                //P_posterior = clip_negative_to_zero(P_posterior);
 
                 // ! DEBUGGING
                 print_matrix("P_posterior positive", &P_posterior);
@@ -963,7 +961,6 @@ fn main() {
             }
         });
 
-        /*
         // Correction using IMU ----------
         let ukf_data_clone = ukf_data.clone();
         #[allow(non_snake_case)]
@@ -1062,7 +1059,6 @@ fn main() {
                 }
             }
         });
-        */
     }
     // Unscented Kalman Filter (STOP) ==================================================
 

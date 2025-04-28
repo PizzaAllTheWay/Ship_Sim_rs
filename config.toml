@@ -64,27 +64,20 @@ P_0 = [
     0.1, 0.1, 0.5, # Uncertainty: [roll, pitch, yaw]
 ]
 
-# P_0 = [
-#     5.5, 5.5, 5.1, # Uncertainty: [vx, vy, vz]
-#     5.1, 5.1, 5.5, # Uncertainty: [wx, wy, wz]
-#     5.0, 5.0, 5.1, # Uncertainty: [x, y, z]
-#     5.1, 5.1, 5.5, # Uncertainty: [roll, pitch, yaw]
-# ]
-
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
-Q = [
-    10.0, 10.0, 20.0, # Model trust in: [vx, vy, vz]
-    10.0, 10.0,  0.1, # Model trust in: [wx, wy, wz]
-    10.0, 10.0,  2.0, # Model trust in: [x, y, z]
-     5.0,  5.0,  5.0, # Model trust in: [roll, pitch, yaw]
-]
-
 # Q = [
-#     0.002, 0.002, 0.005, # Model trust in: [vx, vy, vz]
-#     0.2, 0.2, 0.5, # Model trust in: [wx, wy, wz]
-#     0.2, 0.2, 0.5, # Model trust in: [x, y, z]
-#     0.5, 0.5, 1.5, # Model trust in: [roll, pitch, yaw]
+#     10.0, 10.0, 20.0, # Model trust in: [vx, vy, vz]
+#     10.0, 10.0,  0.1, # Model trust in: [wx, wy, wz]
+#     10.0, 10.0,  2.0, # Model trust in: [x, y, z]
+#      5.0,  5.0,  5.0, # Model trust in: [roll, pitch, yaw]
 # ]
+
+Q = [
+    1.0, 1.0, 0.1, # Model trust in: [vx, vy, vz]
+    1.0, 1.0, 1.0, # Model trust in: [wx, wy, wz]
+    1.0, 1.0, 2.0, # Model trust in: [x, y, z]
+    5.0, 5.0, 5.0, # Model trust in: [roll, pitch, yaw]
+]
 
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 R_gnss = [
@@ -94,11 +87,20 @@ R_gnss = [
     0.100000,                     # Measurement trust in: angle [yaw]
 ]
 
+# R_imu = [
+#     0.0000000782507343, 0.0000008236971636, 0.0000001261186860, # Measurement trust in: accelerometer [ax, ay, az]
+#     0.0000000001637147, 0.0000000002326225, 0.0000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
+#     0.0000000096122428,                                         # Measurement trust in: magnetometer [yaw]
+# ]
+
+# Even though IMU noise is low, it becomes bigger over time
+# Artificially set +0.1 to all IMU trust uncertainty
 R_imu = [
-    0.0000000782507343, 0.0000008236971636, 0.0000001261186860, # Measurement trust in: accelerometer [ax, ay, az]
-    0.0000000001637147, 0.0000000002326225, 0.0000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
-    0.0000000096122428,                                         # Measurement trust in: magnetometer [yaw]
+    0.1000000782507343, 0.1000008236971636, 0.1000001261186860, # Measurement trust in: accelerometer [ax, ay, az]
+    0.1000000001637147, 0.1000000002326225, 0.1000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
+    0.1000000096122428,                                         # Measurement trust in: magnetometer [yaw]
 ]
+
 imu_drift = [
     0.0000028790977229, 0.0000103167668384, 0.0000672533558569, # accelerometer drift [m/s²] 
     0.0000003081781019, 0.0000000021636393, 0.0000002311335764, # gyroscope drift [rad/s]
@@ -106,7 +108,18 @@ imu_drift = [
 ]
 
 # Unscented Kalman Filter Parameters
-kappa = 0.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
-alpha = 0.101 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
+kappa = -9.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
+alpha = 0.050 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
 beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
+
+
+# Good with GNSS
+# kappa = -9.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
+# alpha = 0.150 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
+# beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
+
+
+# kappa = 0.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
+# alpha = 0.101 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
+# beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
 
