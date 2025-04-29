@@ -72,10 +72,10 @@ imu_drift = [
 # Extended Kalman Filter Parameters
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
 ekf_Q = [
-    10.0, 10.0, 20.0, # Model trust in: [vx, vy, vz]
-    10.0, 10.0, 20.0, # Model trust in: [wx, wy, wz]
-    10.0, 10.0,  2.0, # Model trust in: [x, y, z]
-     5.0,  5.0,  5.0, # Model trust in: [roll, pitch, yaw]
+    10.0, 20.0, 10.0, # Model trust in: [vx, vy, vz]
+    20.0, 20.0, 20.0, # Model trust in: [wx, wy, wz]
+    15.0, 15.0, 10.0, # Model trust in: [x, y, z]
+    20.0, 20.0,  5.0, # Model trust in: [roll, pitch, yaw]
 ]
 # ?NOTE: Assume linearity, assume no 2 measurement states can affect each other, no covariance, only variance, ie diagonal matrix. Values calculated from measurement variance
 ekf_R_gnss = [
@@ -92,10 +92,10 @@ ekf_R_imu = [
 
 # Unscented Kalman Filter Parameters
 ukf_Q = [
-    0.10, 0.10, 0.01, # Model trust in: [vx, vy, vz]
-    0.10, 0.10, 0.10, # Model trust in: [wx, wy, wz]
+    0.20, 0.20, 0.01, # Model trust in: [vx, vy, vz]
+    0.20, 0.20, 0.20, # Model trust in: [wx, wy, wz]
     0.20, 0.20, 0.01, # Model trust in: [x, y, z]
-    0.90, 0.90, 0.90, # Model trust in: [roll, pitch, yaw]
+    0.80, 0.80, 0.80, # Model trust in: [roll, pitch, yaw]
 ]
 # Tuned R matrix
 # Artificially decrease GNSS uncertainty
