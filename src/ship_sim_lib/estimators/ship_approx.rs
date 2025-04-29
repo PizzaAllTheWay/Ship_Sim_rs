@@ -203,7 +203,7 @@ impl ShipDynamics {
 
         // Calculate boats distance from the surface of the water
         let pos_water_surface_w = pos_cg_w - Vector3::new(0.0, 0.0, r);
-        let dh = pos_water_surface_w[2];
+        let dh = pos_water_surface_w[2] + 5.0; // Add artificial 5 meters because to compensate for bouncy to be more in line with the real model
         
         // Calculate volume
         // Assume boat is a cuboid

@@ -145,11 +145,6 @@ pub fn calc_sigma_points<const N: usize, const TWO_N: usize>(
     // Scale the covariance matrix and find its square root
     let L = N as f32;
     let P_scaled: SMatrix<f32, N, N> = (L + lambda) * P;
-
-    println!("L: {:?} | lambda: {:?}", L, lambda);
-    print_matrix("P", &P);
-    print_matrix("P_scaled", &P_scaled);
-
     let P_sqrt: SMatrix<f32, N, N> = sqrt_matrix(&P_scaled);
 
     // Initialize array of sigma points

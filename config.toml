@@ -58,24 +58,17 @@ imu_mag_fsr = 6.28 # [rad] full scale resolution
 estimator_pub_frequency = 100.00 # [Hz]
 # ?NOTE: Never have 0.0 in P_0, as that indicates we are 100% confident in our model from the start, this means we would not trust the measurements as the estimator would assume we already have perfect model, witch we don't
 P_0 = [
-    0.5, 0.5, 0.1, # Uncertainty: [vx, vy, vz]
-    0.1, 0.1, 0.5, # Uncertainty: [wx, wy, wz]
-    1.0, 1.0, 0.1, # Uncertainty: [x, y, z]
-    0.1, 0.1, 0.5, # Uncertainty: [roll, pitch, yaw]
+    0.1, 0.1, 0.1, # Uncertainty: [vx, vy, vz]
+    0.1, 0.1, 0.1, # Uncertainty: [wx, wy, wz]
+    0.1, 0.1, 0.1, # Uncertainty: [x, y, z]
+    0.1, 0.1, 0.1, # Uncertainty: [roll, pitch, yaw]
 ]
 
 # ?NOTE: Usually we don't trust the process data our model gives us (Q) as much as the measurement data sensors gives us (R), so Q > R, also Q needs manual tuning while R can be decided just by measurement variance and covariance 
-# Q = [
-#     10.0, 10.0, 20.0, # Model trust in: [vx, vy, vz]
-#     10.0, 10.0,  0.1, # Model trust in: [wx, wy, wz]
-#     10.0, 10.0,  2.0, # Model trust in: [x, y, z]
-#      5.0,  5.0,  5.0, # Model trust in: [roll, pitch, yaw]
-# ]
-
 Q = [
-    0.1, 0.1, 0.9, # Model trust in: [vx, vy, vz]
-    0.1, 0.1, 0.1, # Model trust in: [wx, wy, wz]
-    0.9, 0.9, 0.9, # Model trust in: [x, y, z]
+    0.2, 0.2, 0.2, # Model trust in: [vx, vy, vz]
+    0.1, 0.1, 0.05, # Model trust in: [wx, wy, wz]
+    0.2, 0.2, 0.01, # Model trust in: [x, y, z]
     0.9, 0.9, 0.9, # Model trust in: [roll, pitch, yaw]
 ]
 
@@ -86,27 +79,39 @@ Q = [
 #     0.824833, 0.824833, 1.096953, # Measurement trust in: velocity [vx, vy, vz]
 #     1.000000,                     # Measurement trust in: angle [yaw]
 # ]
-
+#
+# Tuned R matrix
+# Artificially decrease GNSS uncertainty:
+#    - All: ???
+#    - All: ???
+# This is because just getting the standard deviation is not good enough for tuning the UKF properly
+# EKF is not as sensitive to R and Q changes and thats why it can handle boarder variations
+# Meanwhile UKF needs better tuning to be precise and not get unstable
 R_gnss = [
-    1.600936, 1.619552, 5.448326, # Measurement trust in: antenna1 [x, y, z]
-    1.560227, 1.512290, 5.518882, # Measurement trust in: antenna2 [x, y, z]
-    0.824833, 0.824833, 1.096953, # Measurement trust in: velocity [vx, vy, vz]
-    1.000000,                     # Measurement trust in: angle [yaw]
+    0.1600936, 0.1619552, 0.5448326, # Measurement trust in: antenna1 [x, y, z]
+    0.1560227, 0.1512290, 0.5518882, # Measurement trust in: antenna2 [x, y, z]
+    0.1824833, 0.1824833, 0.1096953, # Measurement trust in: velocity [vx, vy, vz]
+    0.1000000,                     # Measurement trust in: angle [yaw]
 ]
 
+# Original R matrix NOT Tuned
 # R_imu = [
 #     0.0000000782507343, 0.0000008236971636, 0.0000001261186860, # Measurement trust in: accelerometer [ax, ay, az]
 #     0.0000000001637147, 0.0000000002326225, 0.0000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
 #     0.0000000096122428,                                         # Measurement trust in: magnetometer [yaw]
 # ]
-
+#
+# Tuned R matrix
 # Even though IMU noise is low, it becomes bigger over time
-# Artificially set +0.1 to all IMU trust uncertainty
-# ! EXPLAIN BETTER ....
+# Artificially increase IMU Uncertainty
+#    - All: original + 0.1
+# This is because just getting the standard deviation is not good enough for tuning the UKF properly
+# EKF is not as sensitive to R and Q changes and thats why it can handle boarder variations
+# Meanwhile UKF needs better tuning to be precise and not get unstable
 R_imu = [
-    0.1500000782507343, 0.1500008236971636, 0.1500001261186860, # Measurement trust in: accelerometer [ax, ay, az]
-    0.1500000001637147, 0.1500000002326225, 0.0500000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
-    0.0500000096122428,                                         # Measurement trust in: magnetometer [yaw]
+    0.1000000782507343, 0.1000008236971636, 0.1000001261186860, # Measurement trust in: accelerometer [ax, ay, az]
+    0.1000000001637147, 0.1000000002326225, 0.1000000001378617, # Measurement trust in: gyroscope [wx, wy, wz]
+    0.1000000096122428,                                         # Measurement trust in: magnetometer [yaw]
 ]
 
 imu_drift = [
@@ -116,18 +121,6 @@ imu_drift = [
 ]
 
 # Unscented Kalman Filter Parameters
-kappa = -9.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
-alpha = 0.060 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
+kappa = -9.0  # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
+alpha = 0.050 # Primary scaling parameter (usually tiny, like 0.010 - 0.001, NOTE: Setting to low or high value will make the filter unstable). Controls overall spread of sigma points around the mean
 beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
-
-
-# Good with GNSS
-# kappa = -9.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
-# alpha = 0.150 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
-# beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
-
-
-# kappa = 0.0   # Secondary scaling parameter (often 0). Tweaks spread of sigma points slightly. Small value = safer default
-# alpha = 0.101 # Primary scaling parameter (usually tiny, like 0.001). Controls overall spread of sigma points around the mean
-# beta = 2.0    # Prior knowledge about distribution type (For Gaussian distributions: beta = 2.0 is optimal)
-
