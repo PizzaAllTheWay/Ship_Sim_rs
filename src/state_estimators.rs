@@ -380,35 +380,6 @@ fn angle_between_points(front: Vector3<f32>, back: Vector3<f32>) -> f32 {
     angle
 }
 
-/// Print any matrix (SMatrix) nicely with fixed formatting
-///
-/// # Parameters:
-/// - `name`: Matrix label to print before the data
-/// - `matrix`: The matrix to print, supports any dimensions R×C
-///
-/// # Output:
-/// Example for 3x2:
-/// A = [
-///   [   1.0000000,   2.0000000, ],
-///   [   3.0000000,   4.0000000, ],
-///   [   5.0000000,   6.0000000, ],
-/// ]
-fn print_matrix<T: std::fmt::Display, const R: usize, const C: usize>(
-    name: &str,
-    matrix: &nalgebra::SMatrix<T, R, C>
-) {
-    println!("{} = [", name);
-    for r in 0..R {
-        print!("  [");
-        for c in 0..C {
-            // Print each value with consistent spacing
-            print!("{:>12.8}, ", matrix[(r, c)]);
-        }
-        println!("],");
-    }
-    println!("]");
-}
-
 
 
 fn main() {

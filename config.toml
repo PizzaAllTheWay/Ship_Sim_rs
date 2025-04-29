@@ -92,8 +92,8 @@ ekf_R_imu = [
 
 # Unscented Kalman Filter Parameters
 ukf_Q = [
-    0.20, 0.20, 0.01, # Model trust in: [vx, vy, vz]
-    0.20, 0.20, 0.20, # Model trust in: [wx, wy, wz]
+    0.10, 0.20, 0.01, # Model trust in: [vx, vy, vz]
+    0.10, 0.10, 0.10, # Model trust in: [wx, wy, wz]
     0.20, 0.20, 0.01, # Model trust in: [x, y, z]
     0.80, 0.80, 0.80, # Model trust in: [roll, pitch, yaw]
 ]
