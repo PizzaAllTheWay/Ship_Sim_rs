@@ -61,13 +61,18 @@ struct SensorsConfig {
 struct EstimatorsConfig {
     estimator_pub_frequency: f32,
     P_0: [f32; 12],
-    Q: [f32; 12],
-    R_gnss: [f32; 10],
-    R_imu: [f32; 7],
     imu_drift: [f32; 7],
-    kappa: f32,
-    alpha: f32,
-    beta: f32,
+
+    ekf_Q: [f32; 12],
+    ekf_R_gnss: [f32; 10],
+    ekf_R_imu: [f32; 7],
+
+    ukf_Q: [f32; 12],
+    ukf_R_gnss: [f32; 10],
+    ukf_R_imu: [f32; 7],
+    ukf_kappa: f32,
+    ukf_alpha: f32,
+    ukf_beta: f32,
 }
 
 #[derive(Deserialize)]
@@ -375,16 +380,6 @@ fn angle_between_points(front: Vector3<f32>, back: Vector3<f32>) -> f32 {
     angle
 }
 
-/// Set all negative entries in a matrix to zero.
-fn clip_negative_to_zero<const N: usize>(mut matrix: SMatrix<f32, N, N>) -> SMatrix<f32, N, N> {
-    matrix.iter_mut().for_each(|x| {
-        if *x < 0.0 {
-            *x = 0.0;
-        }
-    });
-    matrix
-}
-
 /// Print any matrix (SMatrix) nicely with fixed formatting
 ///
 /// # Parameters:
@@ -464,7 +459,7 @@ fn main() {
 
         // IMU drift setup
         #[allow(non_snake_case)]
-        let R_imu_vector: Vector7<f32> = Vector7::<f32>::from_row_slice(&config.estimators.R_imu);
+        let R_imu_vector: Vector7<f32> = Vector7::<f32>::from_row_slice(&config.estimators.ekf_R_imu);
         #[allow(non_snake_case)]
         let R_imu_0: Matrix7x7<f32> = Matrix7x7::<f32>::from_diagonal(&R_imu_vector);
         #[allow(non_snake_case)]
@@ -495,7 +490,7 @@ fn main() {
             );
 
             // Get confidence matrix for our model
-            let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.Q);
+            let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.ekf_Q);
             let Q: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&Q_vector);
 
             loop {
@@ -556,7 +551,7 @@ fn main() {
         thread::spawn(move || {
             // Initialize system ----------
             // Get confidence matrix for our measurements
-            let R_vector: Vector10<f32> = Vector10::<f32>::from_row_slice(&config.estimators.R_gnss);
+            let R_vector: Vector10<f32> = Vector10::<f32>::from_row_slice(&config.estimators.ekf_R_gnss);
             let R: Matrix10x10<f32> = Matrix10x10::<f32>::from_diagonal(&R_vector);
 
             // Unwrapped yaw follower
@@ -749,13 +744,13 @@ fn main() {
         #[allow(non_snake_case)]
         const N: usize = 12;
         let lambda: f32 = ukf::calc_lambda::<N>(
-            config.estimators.kappa,
-            config.estimators.alpha,
+            config.estimators.ukf_kappa,
+            config.estimators.ukf_alpha,
         );
         let weights: ukf::Weights<N, {2*N}> = ukf::calc_weights(
             lambda,
-            config.estimators.alpha,
-            config.estimators.beta,
+            config.estimators.ukf_alpha,
+            config.estimators.ukf_beta,
         );
         let sigma_points: ukf::SigmaPoints<N, {2*N}> = ukf::calc_sigma_points(
             x_0,
@@ -777,7 +772,7 @@ fn main() {
 
         // IMU drift setup
         #[allow(non_snake_case)]
-        let R_imu_vector: Vector7<f32> = Vector7::<f32>::from_row_slice(&config.estimators.R_imu);
+        let R_imu_vector: Vector7<f32> = Vector7::<f32>::from_row_slice(&config.estimators.ukf_R_imu);
         #[allow(non_snake_case)]
         let R_imu_0: Matrix7x7<f32> = Matrix7x7::<f32>::from_diagonal(&R_imu_vector);
         #[allow(non_snake_case)]
@@ -808,7 +803,7 @@ fn main() {
             );
 
             // Get confidence matrix for our model
-            let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.Q);
+            let Q_vector: Vector12<f32> = Vector12::<f32>::from_row_slice(&config.estimators.ukf_Q);
             let Q: Matrix12x12<f32> = Matrix12x12::<f32>::from_diagonal(&Q_vector);
 
             loop {
@@ -873,7 +868,7 @@ fn main() {
         thread::spawn(move || {
             // Initialize system ----------
             // Get confidence matrix for our measurements
-            let R_vector: Vector10<f32> = Vector10::<f32>::from_row_slice(&config.estimators.R_gnss);
+            let R_vector: Vector10<f32> = Vector10::<f32>::from_row_slice(&config.estimators.ukf_R_gnss);
             let R: Matrix10x10<f32> = Matrix10x10::<f32>::from_diagonal(&R_vector);
 
             // Unwrapped yaw follower

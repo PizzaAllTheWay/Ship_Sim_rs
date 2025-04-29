@@ -5,23 +5,6 @@ use nalgebra::{SVector, SMatrix};
 use std::sync::{Arc, RwLock};
 
 
-// ! DEBUGGING ! REMOVE LATERRRR!!!
-fn print_matrix<T: std::fmt::Display, const R: usize, const C: usize>(
-    name: &str,
-    matrix: &nalgebra::SMatrix<T, R, C>
-) {
-    println!("{} = [", name);
-    for r in 0..R {
-        print!("  [");
-        for c in 0..C {
-            // Print each value with consistent spacing
-            print!("{:>12.8}, ", matrix[(r, c)]);
-        }
-        println!("],");
-    }
-    println!("]");
-}
-
 
 // Data Structure (START) ==================================================
 #[derive(Clone)]
