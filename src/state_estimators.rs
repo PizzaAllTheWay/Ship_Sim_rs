@@ -319,7 +319,7 @@ fn limit_states(x: Vector12<f32>) -> Vector12<f32> {
     // Clamp physically impossible velocities
     x_limited[0] = x[0].clamp(-20.0, 20.0); // X velocity
     x_limited[1] = x[1].clamp(-20.0, 20.0); // Y velocity
-    x_limited[5] = x[5].clamp(-5.0, 5.0); // Yaw velocity
+    x_limited[5] = x[5].clamp(-2.0, 2.0); // Yaw velocity
 
     x_limited
 }
@@ -864,6 +864,7 @@ fn main() {
             }
         });
         
+        /*
         // Correct using GNSS ----------
         let ukf_data_clone = ukf_data.clone();
         #[allow(non_snake_case)]
@@ -960,6 +961,7 @@ fn main() {
                 }
             }
         });
+        */
 
         // Correction using IMU ----------
         let ukf_data_clone = ukf_data.clone();
